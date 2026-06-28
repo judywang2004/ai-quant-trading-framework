@@ -7,7 +7,7 @@ models          Core trading domain objects
 strategies      Trading logic
 risk            Position sizing and risk controls
 execution       Execute orders (backtest or live)
-acktesting      Replay historical data
+backtesting      Replay historical data
 analytics       Performance calculations
 dashboard       Streamlit UI
 ml              AI models
