@@ -24,7 +24,10 @@ def main():
     )
 
     strategy = DummyStrategy()
-    trade_signal = strategy.generate_signal(candle)
+    trade_signal = strategy.generate_signal([candle])
+    if trade_signal is None:
+        print("No trading signal generated.")
+        return
 
     risk_manager = RiskManager()
     volume = risk_manager.calculate_volume()
