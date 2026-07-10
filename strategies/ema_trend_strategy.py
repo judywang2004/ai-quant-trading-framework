@@ -21,9 +21,14 @@ class EMATrendStrategy(Strategy):
     """
 
     REQUIRED_HISTORY = 50
-
+    # TODO:
+    # Replace fixed offsets with ATR-based stop.
     STOP_LOSS = 0.005
     TAKE_PROFIT = 0.010
+
+    @property
+    def name(self) -> str:
+        return "EMATrendStrategy"
 
     def generate_signal(
         self,
@@ -47,7 +52,7 @@ class EMATrendStrategy(Strategy):
                 timeframe=current.timeframe,
                 timestamp=current.timestamp,
                 signal_type=SignalType.BUY,
-                strategy_name="EMATrendStrategy",
+                strategy_name=self.name,
                 entry=current.close,
                 stop_loss=current.close - self.STOP_LOSS,
                 take_profit=current.close + self.TAKE_PROFIT,
@@ -61,7 +66,7 @@ class EMATrendStrategy(Strategy):
                 timeframe=current.timeframe,
                 timestamp=current.timestamp,
                 signal_type=SignalType.SELL,
-                strategy_name="EMATrendStrategy",
+                strategy_name=self.name,
                 entry=current.close,
                 stop_loss=current.close + self.STOP_LOSS,
                 take_profit=current.close - self.TAKE_PROFIT,

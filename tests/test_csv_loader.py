@@ -17,7 +17,7 @@ class CsvLoaderTests(unittest.TestCase):
             csv_path = Path(handle.name)
 
         try:
-            candles = load_candles(csv_path)
+            candles = load_candles(csv_path, symbol="AAPL", timeframe="1m")
 
             self.assertEqual(len(candles), 1)
             candle = candles[0]
