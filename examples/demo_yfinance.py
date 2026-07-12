@@ -1,50 +1,48 @@
 from pathlib import Path
+import csv
 
-import yfinance as yf
+from data.yfinance_loader import load_yfinance
+
+
+OUTPUT_FILE = Path("data/historical/USDJPY_M5.csv")
 
 
 def main():
 
-    output_dir = Path("data/historical")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    output_file = output_dir / "USDJPY_M5.csv"
-
-    df = yf.download(
-        "JPY=X",
+    candles = load_yfinance(
+        symbol="JPY=X",
         interval="5m",
         period="60d",
-        progress=False,
     )
 
-    if df.empty:
-        print("Download failed.")
-        return
+    with OUTPUT_FILE.open("w", newline="", encoding="utf-8") as f:
 
-    # Flatten MultiIndex columns if necessary
-    if hasattr(df.columns, "levels"):
-        df.columns = df.columns.get_level_values(0)
+        writer = csv.writer(f)
 
-    # Move Datetime index into a normal column
-    df.reset_index(inplace=True)
+        writer.writerow([
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ])
 
-    # Rename columns to match our loader
-    df.rename(
-        columns={
-            "Datetime": "timestamp",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Volume": "volume",
-        },
-        inplace=True,
-    )
+        for candle in candles:
 
-    df.to_csv(output_file, index=False)
+            writer.writerow([
+                candle.timestamp.isoformat(),
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume,
+            ])
 
-    print(f"Downloaded {len(df)} candles")
-    print(f"Saved to {output_file}")
+    print(f"Downloaded {len(candles)} candles")
+    print(f"Saved to {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

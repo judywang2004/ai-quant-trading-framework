@@ -44,9 +44,37 @@ class EMATrendStrategy(Strategy):
         ema50 = calculate_ema(closes, period=50)
 
         current = candles[-1]
+        ema20_value = ema20[-1]
+        ema50_value = ema50[-1]
 
         # BUY
-        if ema20[-1] > ema50[-1] and current.close > ema20[-1]:
+        # BUY
+
+        if ema20_value > ema50_value and current.close > ema20_value:
+
+            print(f"""
+
+        ========== SIGNAL ==========
+
+        Time   : {current.timestamp}
+
+        EMA20  : {ema20_value:.3f}
+
+        EMA50  : {ema50_value:.3f}
+
+        Close  : {current.close:.3f}
+
+        Decision : BUY
+
+        Reason:
+
+        ✓ EMA20 > EMA50
+
+        ✓ Close > EMA20
+
+        ============================
+         """) 
+            
             return Signal(
                 symbol=current.symbol,
                 timeframe=current.timeframe,
@@ -60,8 +88,32 @@ class EMATrendStrategy(Strategy):
             )
 
         # SELL
-        if ema20[-1] < ema50[-1] and current.close < ema20[-1]:
-            return Signal(
+        if ema20_value < ema50_value and current.close < ema20_value:
+
+            print(f"""
+
+        ========== SIGNAL ==========
+
+        Time   : {current.timestamp}
+
+        EMA20  : {ema20_value:.3f}
+
+        EMA50  : {ema50_value:.3f}
+
+        Close  : {current.close:.3f}
+
+        Decision : SELL
+
+        Reason:
+
+        ✓ EMA20 < EMA50
+
+        ✓ Close < EMA20
+
+        ============================
+
+        """)
+        return Signal(
                 symbol=current.symbol,
                 timeframe=current.timeframe,
                 timestamp=current.timestamp,

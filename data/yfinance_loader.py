@@ -3,7 +3,7 @@ from datetime import datetime
 import yfinance as yf
 
 from models.candle import Candle
-
+from zoneinfo import ZoneInfo
 
 def load_yfinance(
     symbol: str,
@@ -34,13 +34,20 @@ def load_yfinance(
     candles = []
 
     for timestamp, row in df.iterrows():
+         
+       # Convert timezone if available
+
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone(
+                 ZoneInfo("America/New_York")
+            )
 
         candles.append(
             Candle(
                 symbol=symbol,
                 timeframe=interval.upper(),
-                timestamp=timestamp.to_pydatetime(),
-
+                timestamp=timestamp,
+                
                 open=float(row["Open"]),
                 high=float(row["High"]),
                 low=float(row["Low"]),
