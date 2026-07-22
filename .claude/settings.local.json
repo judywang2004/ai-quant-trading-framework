@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m unittest discover -s tests -v)",
+      "Bash(python -m examples.demo_daily_bias)",
+      "Bash(python3 -c \"import setuptools; print\\(setuptools.__version__\\)\")",
+      "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(python3 -m pip install -e . --no-deps)",
+      "Bash(python3 -m unittest discover -s tests -v)",
+      "Bash(python3 tests/test_daily_trend_assessment.py)",
+      "Bash(python3 examples/demo_daily_bias.py)",
+      "Bash(python3 -m unittest discover -s tests)",
+      "Bash(git checkout *)"
+    ]
+  }
+}

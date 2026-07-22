@@ -25,3 +25,22 @@ our priorities:
 1. Develop profitable trading strategies 💰
 2. Build a robust quantitative research framework 🧠
 3. Create a professional GitHub portfolio 📚
+
+## Development Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+pip install -e .
+```
+
+After that, all examples and tests can be run directly.
+
+Examples:
+
+```bash
+python3 examples/demo_daily_bias.py
+python3 -m unittest discover -s tests
+```

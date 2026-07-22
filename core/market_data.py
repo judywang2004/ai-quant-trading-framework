@@ -66,3 +66,66 @@ class MarketData:
                 return candle
 
         return None
+
+
+    def daily_history_until(
+        self,
+        t: datetime,
+        lookback: int | None = None,
+    ) -> list[Candle]:
+
+        history = [
+            c for c in self.daily
+            if c.timestamp.date() <= t.date()
+        ]
+
+        if lookback is not None:
+            return history[-lookback:]
+
+        return history
+
+
+    def h1_history_until(
+        self,
+        t: datetime,
+        lookback: int | None = None,
+    ) -> list[Candle]:
+
+        history = [
+            c for c in self.h1
+            if c.timestamp <= t.replace(
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+        ]
+
+        if lookback is not None:
+            return history[-lookback:]
+
+        return history
+
+
+    def m15_history_until(
+        self,
+        t: datetime,
+        lookback: int | None = None,
+    ) -> list[Candle]:
+
+        minute = (t.minute // 15) * 15
+
+        target = t.replace(
+            minute=minute,
+            second=0,
+            microsecond=0,
+        )
+
+        history = [
+            c for c in self.m15
+            if c.timestamp <= target
+        ]
+
+        if lookback is not None:
+            return history[-lookback:]
+
+        return history

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from models.candle import Candle
 from models.signal import Signal
+from core.market_data import MarketData
 
 
 class Strategy(ABC):
@@ -14,8 +15,13 @@ class Strategy(ABC):
 
     @abstractmethod
     def generate_signal(
+
         self,
-        candles: list[Candle],
+
+        market: MarketData,
+
+        current_index: int,
+
     ) -> Signal | None:
         """
         Generate a trading signal from historical market data.
