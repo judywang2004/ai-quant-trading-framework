@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-quant-trading-framework"
+version = "0.1.0"
+description = "AI-assisted quantitative trading framework (MVP)"
+requires-python = ">=3.10"
+readme = "README.md"
+# Runtime dependencies are pinned in requirements.txt for the dev
+# environment; this project is not published as a distribution, so they
+# are intentionally not duplicated here.
+dynamic = []
+
+# Flat layout: first-party packages live directly at the project root
+# (core/, data/, models/, ...) rather than under src/. Installing this
+# project in editable mode (`pip install -e .`) makes each package below
+# importable from anywhere - no PYTHONPATH or sys.path edits required in
+# scripts, regardless of how they are invoked (`python3 examples/foo.py`,
+# `python3 -m examples.foo`, or from any working directory).
+#
+# Listed explicitly (rather than via packages.find) so that non-code
+# data directories such as data/raw and data/historical are never picked
+# up as (namespace) packages.
+[tool.setuptools]
+packages = [
+    "analytics",
+    "backtesting",
+    "config",
+    "core",
+    "data",
+    "execution",
+    "indicators",
+    "models",
+    "risk",
+    "strategies",
+]

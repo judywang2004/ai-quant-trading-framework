@@ -1,3 +1,6 @@
+from abc import abstractmethod
+
+from core.market_data import MarketData
 from models.candle import Candle
 from models.signal import Signal
 from models.enums import SignalType
@@ -30,10 +33,13 @@ class EMATrendStrategy(Strategy):
     def name(self) -> str:
         return "EMATrendStrategy"
 
+    @abstractmethod
     def generate_signal(
         self,
-        candles: list[Candle],
+        market: MarketData,
+        current_index: int,
     ) -> Signal | None:
+        candles = market.m5[: current_index + 1]
 
         if len(candles) < self.REQUIRED_HISTORY:
             return None
