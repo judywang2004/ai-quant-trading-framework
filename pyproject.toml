@@ -33,6 +33,7 @@ packages = [
     "execution",
     "indicators",
     "models",
+    "patterns",
     "risk",
     "strategies",
 ]

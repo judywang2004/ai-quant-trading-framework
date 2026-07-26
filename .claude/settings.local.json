@@ -10,7 +10,9 @@
       "Bash(python3 tests/test_daily_trend_assessment.py)",
       "Bash(python3 examples/demo_daily_bias.py)",
       "Bash(python3 -m unittest discover -s tests)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(python3 examples/demo_high_base_detector.py)",
+      "Bash(python3 -m unittest tests.test_high_base_detector -v)"
     ]
   }
 }
