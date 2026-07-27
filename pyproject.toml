@@ -36,4 +36,5 @@ packages = [
     "patterns",
     "risk",
     "strategies",
+    "validation",
 ]
