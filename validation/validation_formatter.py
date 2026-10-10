@@ -172,6 +172,65 @@ def _write_csv(handle: TextIO, reviews: list[ContextReview], fieldnames: list[st
         writer.writerow(_csv_row(review))
 
 
+GOLDEN_DATASET_LEADING_FIELDS = ["Timestamp", "Symbol", "Timeframe", "DetectorDecision"]
+GOLDEN_DATASET_TRAILING_FIELDS = ["HumanDecision", "Notes"]
+
+
+def write_csv_review_export(
+    reviews: Iterable[ContextReview],
+    path,
+    columns: list[str] | None = None,
+) -> None:
+    """
+    Write a lean "golden dataset" CSV for a manual validation study: one
+    row per ContextReview, with Timestamp/Symbol/Timeframe, an overall
+    DetectorDecision (SIGNAL/NO SIGNAL), a caller-chosen subset/order of
+    rule-check columns, and two blank columns - HumanDecision and Notes
+    - for a human reviewer to fill in by hand while replaying each
+    candle in TradingView.
+
+    Unlike write_csv_export (the full per-rule audit CSV, every check
+    column, Result/FailureReason), this is intentionally lean and its
+    column subset/order is caller-controlled via `columns` - the
+    specific set a validation study wants is study-specific knowledge
+    that belongs with the caller (e.g. demo_signal_engine.py), not
+    hardcoded here; `columns` defaults to every rule-check column the
+    reviews contain, in their existing order, when not given.
+
+    HumanDecision/Notes are always written blank - they exist for a
+    human to fill in after export, never populated by this framework.
+    """
+    reviews = list(reviews)
+    if columns is None:
+        columns = [check.column for check in reviews[0].checks] if reviews else []
+
+    fieldnames = GOLDEN_DATASET_LEADING_FIELDS + columns + GOLDEN_DATASET_TRAILING_FIELDS
+
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for review in reviews:
+            writer.writerow(_csv_review_row(review, columns))
+
+
+def _csv_review_row(review: ContextReview, columns: list[str]) -> dict[str, str]:
+    check_by_column = {check.column: check for check in review.checks}
+
+    row = {
+        "Timestamp": review.timestamp.strftime(TIMESTAMP_FORMAT),
+        "Symbol": review.symbol,
+        "Timeframe": review.timeframe,
+        "DetectorDecision": "SIGNAL" if review.signal_detected else "NO SIGNAL",
+        "HumanDecision": "",
+        "Notes": "",
+    }
+    for column in columns:
+        check = check_by_column.get(column)
+        row[column] = _status_label(check.passed) if check is not None else ""
+
+    return row
+
+
 # ------------------------------------------------------------------
 # Research mode: a much more detailed, engineering-grade report -
 # every intermediate value, formula, and sub-rule outcome behind each

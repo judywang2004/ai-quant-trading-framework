@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from validation.validation_formatter import format_console_review, write_csv_export
+from validation.validation_formatter import format_console_review, write_csv_export, write_csv_review_export
 from validation.validation_report import ContextReview, RuleCheck
 
 # Deliberately NOT High Base specific: proves the formatter is generic
@@ -191,6 +191,183 @@ class WriteCsvExportTests(unittest.TestCase):
             rows = self._read_rows(path)
 
         self.assertEqual(len(rows), 2)
+
+
+class WriteCsvReviewExportTests(unittest.TestCase):
+    """Covers write_csv_review_export - the lean 'golden dataset' CSV
+    for a manual validation study (Task 731), distinct from
+    write_csv_export's full per-rule audit CSV."""
+
+    def _read_rows(self, path):
+        with open(path, newline="") as handle:
+            return list(csv.DictReader(handle))
+
+    def _header(self, path):
+        with open(path, newline="") as handle:
+            return next(csv.reader(handle))
+
+    def test_header_matches_golden_dataset_schema_for_chosen_columns(self):
+        review = _review(
+            checks=[
+                _check("Daily Trend Assessment", "DailyTrend", True),
+                _check("EMA Alignment", "EMAAlignment", False),
+                _check("Impulse Gain", "ImpulseGain", False),
+                _check("Base Width", "BaseWidth", True),
+                _check("Breakout", "Breakout", False),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export(
+                [review], path, columns=["DailyTrend", "EMAAlignment", "ImpulseGain", "BaseWidth", "Breakout"]
+            )
+            header = self._header(path)
+
+        self.assertEqual(
+            header,
+            [
+                "Timestamp",
+                "Symbol",
+                "Timeframe",
+                "DetectorDecision",
+                "DailyTrend",
+                "EMAAlignment",
+                "ImpulseGain",
+                "BaseWidth",
+                "Breakout",
+                "HumanDecision",
+                "Notes",
+            ],
+        )
+
+    def test_row_values_reflect_review_and_omits_unselected_columns(self):
+        # "Rule Two" exists on the review but is not in `columns` - it
+        # must not leak into the CSV.
+        checks = [
+            _check("Rule One", "RuleOne", True),
+            _check("Rule Two", "RuleTwo", False),
+        ]
+        review = _review(signal_detected=False, checks=checks)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=["RuleOne"])
+            header = self._header(path)
+            rows = self._read_rows(path)
+
+        self.assertNotIn("RuleTwo", header)
+        row = rows[0]
+        self.assertEqual(row["Timestamp"], "2025-03-12 08:00")
+        self.assertEqual(row["Symbol"], "USDJPY")
+        self.assertEqual(row["Timeframe"], "H1")
+        self.assertEqual(row["DetectorDecision"], "NO SIGNAL")
+        self.assertEqual(row["RuleOne"], "PASS")
+
+    def test_signal_detected_reports_signal_decision(self):
+        review = _review(signal_detected=True, checks=[_check("RuleOne", "RuleOne", True)])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=["RuleOne"])
+            rows = self._read_rows(path)
+
+        self.assertEqual(rows[0]["DetectorDecision"], "SIGNAL")
+
+    def test_human_decision_and_notes_are_always_blank(self):
+        review = _review(checks=[_check("RuleOne", "RuleOne", True)])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=["RuleOne"])
+            rows = self._read_rows(path)
+
+        self.assertEqual(rows[0]["HumanDecision"], "")
+        self.assertEqual(rows[0]["Notes"], "")
+
+    def test_none_passed_renders_as_na(self):
+        review = _review(checks=[_check("RuleOne", "RuleOne", None)])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=["RuleOne"])
+            rows = self._read_rows(path)
+
+        self.assertEqual(rows[0]["RuleOne"], "N/A")
+
+    def test_missing_column_on_a_review_renders_blank_not_an_error(self):
+        # e.g. mixing detectors whose checks don't all share every
+        # column - should degrade gracefully rather than raise.
+        review = _review(checks=[_check("RuleOne", "RuleOne", True)])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=["RuleOne", "RuleTwo"])
+            rows = self._read_rows(path)
+
+        self.assertEqual(rows[0]["RuleTwo"], "")
+
+    def test_columns_defaults_to_every_check_column_when_not_given(self):
+        review = _review(
+            checks=[_check("Rule One", "RuleOne", True), _check("Rule Two", "RuleTwo", False)]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path)
+            header = self._header(path)
+
+        self.assertIn("RuleOne", header)
+        self.assertIn("RuleTwo", header)
+
+    def test_multiple_reviews_produce_one_row_each(self):
+        reviews = [
+            _review(checks=[_check("RuleOne", "RuleOne", True)]),
+            _review(signal_detected=False, checks=[_check("RuleOne", "RuleOne", False)]),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export(reviews, path, columns=["RuleOne"])
+            rows = self._read_rows(path)
+
+        self.assertEqual(len(rows), 2)
+
+    def test_empty_reviews_writes_header_only(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([], path, columns=["DailyTrend"])
+
+            header = self._header(path)
+            rows = self._read_rows(path)
+
+        self.assertEqual(
+            header,
+            ["Timestamp", "Symbol", "Timeframe", "DetectorDecision", "DailyTrend", "HumanDecision", "Notes"],
+        )
+        self.assertEqual(rows, [])
+
+    def test_empty_reviews_and_no_columns_writes_minimal_header(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([], path)
+
+            header = self._header(path)
+
+        self.assertEqual(
+            header, ["Timestamp", "Symbol", "Timeframe", "DetectorDecision", "HumanDecision", "Notes"]
+        )
+
+    def test_never_includes_failure_reason_or_manual_review_checklist(self):
+        review = _review(signal_detected=False, failure_reason="Impulse too weak.")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=["RuleOne", "RuleTwo"])
+            content = path.read_text()
+
+        self.assertNotIn("Impulse too weak.", content)
+        self.assertNotIn("Manual TradingView Review", content)
 
 
 if __name__ == "__main__":

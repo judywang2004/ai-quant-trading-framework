@@ -42,12 +42,19 @@ from validation.validation_formatter import (
     format_research_review,
     format_research_summary,
     write_csv_export,
+    write_csv_review_export,
 )
 from validation.validation_report import DatasetSummary, build_research_summary
 
 EMA20_HISTORY_WINDOW = 5
 MIN_H1_CANDLES_FOR_CONTEXT = 50  # enough history for EMA50 + detector lookback
 RESEARCH_MODE_SOFT_LIMIT = 20  # research mode is meant for a handful of examples
+
+# Column subset/order for the --csv-review "golden dataset" export - the
+# lean set a manual validation study reviews per case, deliberately
+# omitting EMASlope (kept in --export's full audit CSV) to keep the
+# sheet focused on what a human reviewer compares against TradingView.
+CSV_REVIEW_COLUMNS = ["DailyTrend", "EMAAlignment", "ImpulseGain", "BaseWidth", "Breakout"]
 
 
 def build_h1_contexts(market, strategy) -> list[MarketContext]:
@@ -192,6 +199,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="PATH",
         help="Write a CSV review export to PATH (one row per reviewed MarketContext).",
     )
+    parser.add_argument(
+        "--csv-review",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write a lean 'golden dataset' CSV to PATH for a manual validation study: "
+            "one row per reviewed MarketContext, with blank HumanDecision/Notes columns "
+            "for a reviewer to fill in against TradingView."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -255,7 +272,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         print(f"Evaluating {len(contexts)} of {len(all_contexts)} H1 MarketContexts\n")
 
-    if args.review or args.export or args.research:
+    if args.review or args.export or args.research or args.csv_review:
         explainer = explainer_for(detector)
         reviews = [explainer.explain(context) for context in contexts]
 
@@ -275,6 +292,10 @@ def main(argv: list[str] | None = None) -> None:
         if args.export:
             write_csv_export(reviews, args.export)
             print(f"Exported {len(reviews)} review row(s) to {args.export}")
+
+        if args.csv_review:
+            write_csv_review_export(reviews, args.csv_review, columns=CSV_REVIEW_COLUMNS)
+            print(f"Exported {len(reviews)} golden-dataset review row(s) to {args.csv_review}")
 
         signal_count = sum(1 for review in reviews if review.signal_detected)
         print(f"{len(reviews)} context(s) reviewed, {signal_count} signal(s) detected.")

@@ -1,15 +1,21 @@
 import argparse
+import csv
+import tempfile
 import unittest
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from core.market_context import MarketContext
 from examples.demo_signal_engine import (
+    CSV_REVIEW_COLUMNS,
     build_dataset_summary,
     describe_empty_result,
     filter_contexts,
     parse_args,
 )
 from models.candle import Candle
+from validation.explainers import HighBaseExplainer
+from validation.validation_formatter import write_csv_review_export
 
 
 def _context(index: int) -> MarketContext:
@@ -40,6 +46,7 @@ class ParseArgsTests(unittest.TestCase):
         self.assertFalse(args.research)
         self.assertFalse(args.signals_only)
         self.assertIsNone(args.export)
+        self.assertIsNone(args.csv_review)
 
     def test_parses_all_supported_arguments(self):
         args = parse_args(
@@ -53,6 +60,7 @@ class ParseArgsTests(unittest.TestCase):
                 "--research",
                 "--signals-only",
                 "--export", "review.csv",
+                "--csv-review", "golden.csv",
             ]
         )
 
@@ -64,6 +72,7 @@ class ParseArgsTests(unittest.TestCase):
         self.assertTrue(args.research)
         self.assertTrue(args.signals_only)
         self.assertEqual(args.export, "review.csv")
+        self.assertEqual(args.csv_review, "golden.csv")
 
     def test_rejects_invalid_date_format(self):
         with self.assertRaises(SystemExit):
@@ -84,6 +93,14 @@ class ParseArgsTests(unittest.TestCase):
 
         self.assertTrue(args.research)
         self.assertFalse(args.review)
+
+    def test_csv_review_parses_independently_of_export(self):
+        args = parse_args(["--csv-review", "golden.csv"])
+
+        self.assertEqual(args.csv_review, "golden.csv")
+        self.assertIsNone(args.export)
+        self.assertFalse(args.review)
+        self.assertFalse(args.research)
 
 
 class FilterContextsTests(unittest.TestCase):
@@ -231,6 +248,65 @@ class BuildDatasetSummaryTests(unittest.TestCase):
         self.assertIsNone(summary.last_context_timestamp)
         self.assertEqual(summary.contexts_available, 0)
         self.assertEqual(summary.contexts_selected, 0)
+
+
+class CsvReviewGoldenDatasetSchemaTests(unittest.TestCase):
+    """
+    End-to-end check (Task 731): demo_signal_engine.py's own
+    CSV_REVIEW_COLUMNS choice, run through a real HighBaseExplainer,
+    produces exactly the golden-dataset schema the manual validation
+    study needs - not just what the generic formatter tests exercise
+    with synthetic data.
+    """
+
+    def test_csv_review_columns_matches_task_spec(self):
+        self.assertEqual(
+            CSV_REVIEW_COLUMNS,
+            ["DailyTrend", "EMAAlignment", "ImpulseGain", "BaseWidth", "Breakout"],
+        )
+
+    def test_end_to_end_header_matches_golden_dataset_schema(self):
+        review = HighBaseExplainer().explain(_context(0))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=CSV_REVIEW_COLUMNS)
+
+            with open(path, newline="") as handle:
+                header = next(csv.reader(handle))
+
+        self.assertEqual(
+            header,
+            [
+                "Timestamp",
+                "Symbol",
+                "Timeframe",
+                "DetectorDecision",
+                "DailyTrend",
+                "EMAAlignment",
+                "ImpulseGain",
+                "BaseWidth",
+                "Breakout",
+                "HumanDecision",
+                "Notes",
+            ],
+        )
+
+    def test_end_to_end_row_has_blank_human_columns_and_valid_decisions(self):
+        review = HighBaseExplainer().explain(_context(0))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "golden.csv"
+            write_csv_review_export([review], path, columns=CSV_REVIEW_COLUMNS)
+
+            with open(path, newline="") as handle:
+                row = next(csv.DictReader(handle))
+
+        self.assertEqual(row["HumanDecision"], "")
+        self.assertEqual(row["Notes"], "")
+        self.assertIn(row["DetectorDecision"], ("SIGNAL", "NO SIGNAL"))
+        for column in CSV_REVIEW_COLUMNS:
+            self.assertIn(row[column], ("PASS", "FAIL", "N/A"))
 
 
 if __name__ == "__main__":
