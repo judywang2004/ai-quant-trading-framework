@@ -1,9 +1,23 @@
 from datetime import datetime
 
+from core.timeframes import is_closed
 from models.candle import Candle
 
 
 class MarketData:
+    """
+    Historical candles for one symbol across D1/H1/M15/M5.
+
+    Every time-based accessor (`*_at`, `*_history_until`) returns only
+    candles that have FULLY CLOSED at the requested time `t` - see
+    core/timeframes.py. A candle whose period contains `t` is still
+    forming; its high/low/close are not yet known at `t`, so returning it
+    would leak future information into a strategy (look-ahead bias).
+
+    Callers that decide "at the close of bar X" must therefore pass X's
+    close time (core.timeframes.candle_close_time), not its open
+    timestamp.
+    """
 
     def __init__(
         self,
@@ -27,105 +41,82 @@ class MarketData:
             f"M5={len(self.m5)})"
         )
 
+    # ------------------------------------------------------------------
+    # Latest closed candle at time t
+    # ------------------------------------------------------------------
+
     def daily_at(self, t: datetime) -> Candle | None:
-
-        for candle in reversed(self.daily):
-
-            if candle.timestamp.date() == t.date():
-                return candle
-
-        return None
+        """Most recent D1 candle that has fully closed at `t`."""
+        return _latest_closed(self.daily, t)
 
     def h1_at(self, t: datetime) -> Candle | None:
-
-        for candle in reversed(self.h1):
-
-            if (
-                candle.timestamp.year == t.year
-                and candle.timestamp.month == t.month
-                and candle.timestamp.day == t.day
-                and candle.timestamp.hour == t.hour
-            ):
-                return candle
-
-        return None
+        """Most recent H1 candle that has fully closed at `t`."""
+        return _latest_closed(self.h1, t)
 
     def m15_at(self, t: datetime) -> Candle | None:
+        """Most recent M15 candle that has fully closed at `t`."""
+        return _latest_closed(self.m15, t)
 
-        minute = (t.minute // 15) * 15
+    def m5_at(self, t: datetime) -> Candle | None:
+        """Most recent M5 candle that has fully closed at `t`."""
+        return _latest_closed(self.m5, t)
 
-        for candle in reversed(self.m15):
-
-            if (
-                candle.timestamp.year == t.year
-                and candle.timestamp.month == t.month
-                and candle.timestamp.day == t.day
-                and candle.timestamp.hour == t.hour
-                and candle.timestamp.minute == minute
-            ):
-                return candle
-
-        return None
-
+    # ------------------------------------------------------------------
+    # Closed-candle history up to time t
+    # ------------------------------------------------------------------
 
     def daily_history_until(
         self,
         t: datetime,
         lookback: int | None = None,
     ) -> list[Candle]:
-
-        history = [
-            c for c in self.daily
-            if c.timestamp.date() <= t.date()
-        ]
-
-        if lookback is not None:
-            return history[-lookback:]
-
-        return history
-
+        """D1 candles that have fully closed at `t`, oldest first."""
+        return _closed_history(self.daily, t, lookback)
 
     def h1_history_until(
         self,
         t: datetime,
         lookback: int | None = None,
     ) -> list[Candle]:
-
-        history = [
-            c for c in self.h1
-            if c.timestamp <= t.replace(
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-        ]
-
-        if lookback is not None:
-            return history[-lookback:]
-
-        return history
-
+        """H1 candles that have fully closed at `t`, oldest first."""
+        return _closed_history(self.h1, t, lookback)
 
     def m15_history_until(
         self,
         t: datetime,
         lookback: int | None = None,
     ) -> list[Candle]:
+        """M15 candles that have fully closed at `t`, oldest first."""
+        return _closed_history(self.m15, t, lookback)
 
-        minute = (t.minute // 15) * 15
+    def m5_history_until(
+        self,
+        t: datetime,
+        lookback: int | None = None,
+    ) -> list[Candle]:
+        """M5 candles that have fully closed at `t`, oldest first."""
+        return _closed_history(self.m5, t, lookback)
 
-        target = t.replace(
-            minute=minute,
-            second=0,
-            microsecond=0,
-        )
 
-        history = [
-            c for c in self.m15
-            if c.timestamp <= target
-        ]
+def _closed_history(
+    candles: list[Candle],
+    t: datetime,
+    lookback: int | None,
+) -> list[Candle]:
 
-        if lookback is not None:
-            return history[-lookback:]
+    history = [c for c in candles if is_closed(c, t)]
 
-        return history
+    if lookback is not None:
+        return history[-lookback:]
+
+    return history
+
+
+def _latest_closed(candles: list[Candle], t: datetime) -> Candle | None:
+
+    for candle in reversed(candles):
+
+        if is_closed(candle, t):
+            return candle
+
+    return None

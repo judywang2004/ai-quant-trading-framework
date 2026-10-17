@@ -1,3 +1,4 @@
+from core.timeframes import candle_close_time
 from data.market_loader import load_market_data
 from strategies.trend_pullback_strategy import TrendPullbackStrategy
 
@@ -8,17 +9,23 @@ def main():
 
     strategy = TrendPullbackStrategy()
 
-    current = market.m5[1000]
+    current = market.m15[1000]
+
+    # Decide at the close of the current M15 candle - the earliest
+    # moment its data is known.
+    decision_time = candle_close_time(current)
 
     print()
 
-    print("Current M5")
+    print("Current M15")
 
     print(current.timestamp)
 
+    print(f"Decision time: {decision_time}")
+
     result = strategy.daily_bias(
         market,
-        current.timestamp,
+        decision_time,
     )
 
     print()

@@ -31,7 +31,7 @@ def main():
 
     print("M5")
 
-    print(market.m5[0])
+    print(market.m5[0] if market.m5 else "No M5 data loaded.")
 
 
 if __name__ == "__main__":

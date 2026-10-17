@@ -72,6 +72,36 @@ Bearish strategies will be implemented after bullish strategy has been verified.
 
 Do not introduce additional strategy ideas until the MVP has been validated.
 
+The one-strategy restriction remains in force for the original MVP track.
+
+The separately approved Forex Research Track is an explicit exception.
+
+Do not replace, delete, or modify the original MVP strategy.
+
+---
+
+# Forex Research Track
+
+The existing Daily Bias → H1 Pullback → M15 Setup → M5 Trigger strategy remains the primary MVP and must be preserved. A separate Forex Research Track is authorized to develop research infrastructure and benchmark strategies, beginning with Donchian. This does not authorize replacing or deleting existing strategies.
+
+User-approved decisions: docs/forex/DECISIONS.md
+
+Forex Research Track requirements: docs/forex/FOREX_RESEARCH_TRACK.md
+
+Implementation steps and phase gates: docs/forex/INTEGRATION_PLAN.md
+
+---
+
+## Approved Project Decisions
+
+Before proposing or implementing changes, read docs/forex/DECISIONS.md.
+
+Treat its approved decisions as binding project constraints.
+
+Do not silently override, weaken, or contradict previously approved decisions.
+
+If a requested change conflicts with an approved decision, identify the conflict and request explicit user approval before proceeding.
+
 ---
 
 # Strategy Development Process
@@ -266,6 +296,14 @@ Position Manager
 Trade Management
 
 Performance Optimization
+
+Forex Research Track phase status is D10 in docs/forex/DECISIONS.md.
+
+Phase 0: implementation and review completed; commits and PR pending.
+
+Phase 1: scope approved in principle; implementation awaiting final plan approval.
+
+Phase 2: not started.
 
 ---
 
