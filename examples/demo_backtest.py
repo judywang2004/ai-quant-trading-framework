@@ -1,5 +1,16 @@
+"""
+Plumbing demo for Strategy -> Order -> Executor. NOT a realistic backtest.
+
+SimulatedExecutor fills every order at the signal price and closes it at
+take-profit instantly, so every trade is a winner and there are no
+costs. Do not draw any conclusion about EMATrendStrategy from the
+numbers this prints. Realistic simulation is Forex Research Track
+Phase 1 (docs/forex/INTEGRATION_PLAN.md).
+"""
+
 from pathlib import Path
 
+from core.market_data import MarketData
 from data.csv_loader import load_candles
 from data.yfinance_loader import load_yfinance
 
@@ -40,6 +51,10 @@ def main():
 
     print(f"\nLoaded {len(candles)} candles.\n")
 
+    # Strategy.generate_signal takes (MarketData, index into market.m5);
+    # this demo only has M5 candles, so the other timeframes are empty.
+    market = MarketData(daily=[], h1=[], m15=[], m5=candles)
+
     strategy = EMATrendStrategy()
     executor = SimulatedExecutor()
     risk_manager = RiskManager()
@@ -51,7 +66,7 @@ def main():
 
         history = candles[: i + 1]
 
-        signal = strategy.generate_signal(history)
+        signal = strategy.generate_signal(market, i)
 
         if signal is None:
             continue
@@ -120,6 +135,9 @@ def main():
     print(f"Losses        : {losses}")
     print(f"Net Profit    : {total_profit:.3f}")
 
+    print("=" * 60)
+    print("NOTE: not a realistic backtest - every trade exits at")
+    print("take-profit with zero costs (see module docstring).")
     print("=" * 60)
 
 

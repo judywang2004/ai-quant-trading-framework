@@ -1,5 +1,3 @@
-from abc import abstractmethod
-
 from core.market_data import MarketData
 from models.candle import Candle
 from models.signal import Signal
@@ -33,7 +31,6 @@ class EMATrendStrategy(Strategy):
     def name(self) -> str:
         return "EMATrendStrategy"
 
-    @abstractmethod
     def generate_signal(
         self,
         market: MarketData,
@@ -53,7 +50,6 @@ class EMATrendStrategy(Strategy):
         ema20_value = ema20[-1]
         ema50_value = ema50[-1]
 
-        # BUY
         # BUY
 
         if ema20_value > ema50_value and current.close > ema20_value:
@@ -119,7 +115,8 @@ class EMATrendStrategy(Strategy):
         ============================
 
         """)
-        return Signal(
+
+            return Signal(
                 symbol=current.symbol,
                 timeframe=current.timeframe,
                 timestamp=current.timestamp,
