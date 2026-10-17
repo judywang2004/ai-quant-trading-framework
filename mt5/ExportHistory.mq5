@@ -2,6 +2,18 @@
 //| ExportHistory.mq5                                                |
 //| AI Quant Trading Framework                                       |
 //+------------------------------------------------------------------+
+//
+// STATUS: UNCOMPILED / UNVERIFIED (2026-10-16).
+// The filename fix below was written without access to MetaEditor or an
+// MT5 terminal. Compile and run it once before trusting its output.
+// Known, still-open issues (not fixed here):
+//   - FILE_CSV without an explicit delimiter may write tab-separated
+//     values; neither data/mt4_csv_loader.py (Date,Time,O,H,L,C,V) nor
+//     data/csv_loader.py (timestamp,open,...) has been checked against
+//     this script's actual output.
+//   - Timestamps are broker server time with no UTC offset.
+//   - MqlRates.spread and real_volume are not exported.
+//
 #property script_show_inputs
 
 input string SymbolName = "USDJPY";
@@ -27,8 +39,15 @@ void OnStart()
 
    ArraySetAsSeries(rates,false);
 
+   // Name the file after the timeframe actually exported. This was
+   // previously hard-coded to "_M5", so exporting M15 produced a file
+   // named USDJPY_M5.csv containing M15 bars.
+   // EnumToString(PERIOD_M15) == "PERIOD_M15" -> "M15"
+   string timeframeName = EnumToString(Timeframe);
+   StringReplace(timeframeName, "PERIOD_", "");
+
    string filename =
-      SymbolName + "_M5.csv";
+      SymbolName + "_" + timeframeName + ".csv";
 
    int file = FileOpen(
       filename,
