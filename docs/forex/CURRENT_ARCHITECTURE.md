@@ -33,9 +33,7 @@ The core code is written in plain stdlib Python: lists of frozen dataclasses,
 | `docs/milestones/MILESTONE-001` | Claims "ADR-001 Bar-Driven Engine" and "Ready for Backtesting". **The ADR-001 file does not exist** in `docs/adr/`. Only ADR-002 does. |
 | `docs/roadmap.md` | V0.5 H1 Pullback → V0.9 MT5 Executor → V1.0 AI filter. |
 
-> ⚠️ **Scope conflict:** Adding Donchian Breakout and Failed Pullback Continuation
-> contradicts the one-strategy MVP rule in `CLAUDE.md`/`AGENTS.md`. The
-> integration plan asks for an explicit decision on this.
+The one-strategy restriction applies to the original MVP track. The separately approved Forex Research Track is an explicit exception, governed by docs/forex/DECISIONS.md.
 
 ## 3. Module inventory
 

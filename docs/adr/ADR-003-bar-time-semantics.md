@@ -1,8 +1,10 @@
 # ADR-003: Bar Time Semantics and the Closed-Candle Rule
 
-**Status:** Proposed (Phase 0 of the Forex Research Track)
+**Status:** Accepted
 
 **Date:** 2026-10-16
+
+**Accepted:** 2026-10-16. The closed-candle rule and the split between `bar_open_time` and `signal_available_time` are implemented and tested. `core/timeframes.py` defines `candle_close_time` and `is_closed`. The `MarketData` time accessors use that rule. `SignalEngine` stamps `SignalRecord.signal_available_time`. Coverage is in `tests/test_timeframes.py` and `tests/test_market_data_lookahead.py`, and `docs/forex/phase0/PHASE0_REVIEW.md` records the behavior. `execution_time` is defined here and is still enforced only when a Phase 1 executor exists. That deferral is part of this decision, not an open proposal.
 
 ---
 

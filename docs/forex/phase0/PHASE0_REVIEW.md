@@ -2,6 +2,8 @@
 
 Date: 2026-10-16 · Branch: `fix/phase0-correctness` (from `feature/trading-memory-v1` @ `2f07cba`)
 
+**Project status:** Phase 0 implementation and review are completed. Commits and the pull request are pending. Phase 1 scope is approved in principle; its implementation is awaiting final plan approval. Phase 2 has not started. This review did not include Phase 1 work.
+
 Scope: fix look-ahead in multi-timeframe access, verify and correct
 mislabeled USDJPY data, and repair `EMATrendStrategy` / `demo_backtest.py`.
 No Phase 1 work (no new data sources, no execution simulation, no Donchian).

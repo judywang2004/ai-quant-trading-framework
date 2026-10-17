@@ -1,10 +1,16 @@
 # Integration Plan: Forex EA Research
 
-**Status: direction APPROVED. Phase 0 complete. Phase 1 awaits approval.**
+**Status:** Phase 0 implementation and review completed; commits and PR pending. Phase 1 scope approved in principle; implementation awaiting final plan approval. Phase 2 not started.
 
-Approved decisions and requirements live in [`FOREX_RESEARCH_TRACK.md`](FOREX_RESEARCH_TRACK.md),
-which takes precedence over this file. Phase 0 is recorded in
-[`phase0/PHASE0_REVIEW.md`](phase0/PHASE0_REVIEW.md).
+Authority:
+
+- [`DECISIONS.md`](DECISIONS.md) is the authoritative source for user-approved project decisions.
+- [`FOREX_RESEARCH_TRACK.md`](FOREX_RESEARCH_TRACK.md) contains the detailed technical requirements for the Forex Research Track.
+- This file contains implementation steps and phase gates.
+
+Phase 0 is recorded in [`phase0/PHASE0_REVIEW.md`](phase0/PHASE0_REVIEW.md).
+
+M1 Dukascopy Bid/Ask may be used as raw source data. Resample it into H1 signal data and M5 execution simulation data. M1 is not an approved signal or execution timeframe for the initial implementation.
 
 Goal of the first slice:
 
@@ -22,18 +28,20 @@ EURUSD M1 Bid+Ask (Dukascopy CSV)
 
 ## 1. Decisions (resolved)
 
+Numbering in this table is local to the plan. User-approved project decisions are D01–D10 in [`DECISIONS.md`](DECISIONS.md).
+
 | # | Decision | Outcome |
 |---|---|---|
-| D1 | `CLAUDE.md`/`AGENTS.md` say *one strategy only (bullish trend pullback) until validated*. Adding Donchian/FPC changes that. | **Approved.** Decision 1 is recorded verbatim in both files and in `FOREX_RESEARCH_TRACK.md`. |
+| D1 | `CLAUDE.md`/`AGENTS.md` say *one strategy only (bullish trend pullback) until validated*. Adding Donchian/FPC changes that. | **Approved.** The one-strategy restriction remains for the original MVP track. The Forex Research Track is an explicit exception and must not replace, delete, or modify that strategy. Recorded in `DECISIONS.md` D01, both instruction files, and `FOREX_RESEARCH_TRACK.md`. |
 | D2 | Long-only MVP rule vs. Donchian (symmetric by nature) | **Approved:** direction modes `LONG_ONLY`, `SHORT_ONLY`, `BOTH`. |
 | D3 | Donchian baseline rules (research benchmark, not optimized) | **Approved:** signal TF **H1**. Entry: completed-bar close beyond the 20-bar channel of prior completed bars, executed after the bar closes. Initial stop: **2 × ATR(14)**. Exit: opposite **10-bar** channel (only tightens). No take-profit. One position per symbol. Risk **≤ 0.25%** of equity per trade; **skip the trade** if the minimum lot would exceed it. No fixed weekly trade limit (Decision 2). |
-| D4 | Data source | **Approved: Dukascopy M1 BID + ASK**, stored raw outside Git, UTC internally, resampled to M5 (execution) and H1 (signals). EURUSD 2015-01-01 → 2025-12-31 to start. You download them (Dukascopy web/JForex export); the loader imports them. An automated downloader comes later. |
+| D4 | Data source | **Approved: Dukascopy M1 BID + ASK as raw source data**, stored raw outside Git, UTC internally, resampled to H1 (signals) and M5 (execution). M1 is not an approved signal or execution timeframe. EURUSD 2015-01-01 → 2025-12-31 to start. You download them (Dukascopy web/JForex export); the loader imports them. An automated downloader comes later. |
 | D5 | Data location | **Approved:** outside Git, e.g. `/Volumes/ExternalData/market_data/` set via a single config value. Add a `.gitignore` entry for any in-repo fallback path. |
 | D6 | Cost defaults (EURUSD, USD account) | *Proposed; confirm at Phase 1 approval.* Commission $3.50/lot/side, slippage 0.2 pip on market and stop fills, swap off in v1 (flagged in the report). Spread comes from data. All configurable; the report runs a sensitivity table at 0× / 1× / 2× slippage. |
 | D7 | Where the docs live | `docs/forex/` (this folder) |
-| D8 | Execution timeframe | **Approved: M5 preferred** (M1 data is resampled). Intrabar SL/TP ambiguity resolved adversely (stop first), and gaps fill at the bar open. |
+| D8 | Execution timeframe | **Approved: M5.** M1 data is resampled and is not the execution timeframe. Intrabar SL/TP ambiguity resolved adversely (stop first), and gaps fill at the bar open. |
 | D9 | FX trading-day boundary | **Approved:** configurable, initially 17:00 America/New_York. Broker boundaries differ (e.g. the bundled MT4 data uses 18:00 NY in summer). |
-| D10 | Phasing | **Approved:** Phase 0 correctness (done), Phase 1 data and realistic backtesting, Phase 2 Donchian. Each phase needs separate approval. |
+| D10 | Phasing | **Approved:** Phase 0 implementation and review completed; commits and PR pending. Phase 1 scope approved in principle; implementation awaiting final plan approval. Phase 2 not started. |
 
 ## 2. Approach: extend in place, using the empty placeholders
 
@@ -105,15 +113,16 @@ justified, separate refactor.
 ## 4. Implementation steps by approval phase
 
 Each step is: implement → unit test → verify (TradingView or hand calc where
-applicable) → commit. Each phase starts only after explicit approval.
+applicable) → commit. Phase 1 implementation starts only after final plan
+approval. Phase 2 has not started and needs its own approval.
 
-### Phase 0: Correctness and regression tests (DONE)
+### Phase 0: Correctness and regression tests (implementation and review completed; commits and PR pending)
 
 Closed-candle access in `MarketData`, timeframe-label validation, removal of
 the mislabeled USDJPY M5 file, and the `EMATrendStrategy`/`demo_backtest.py`
 repairs. See [`phase0/PHASE0_REVIEW.md`](phase0/PHASE0_REVIEW.md) and ADR-003.
 
-### Phase 1: Historical data infrastructure and realistic FX backtesting (awaiting approval)
+### Phase 1: Historical data infrastructure and realistic FX backtesting (scope approved in principle; implementation awaiting final plan approval)
 
 | Step | Commit | Deliverable | Verification |
 |---|---|---|---|
@@ -176,4 +185,4 @@ All three were **fixed in Phase 0** (`phase0/PHASE0_REVIEW.md`):
 
 ---
 
-**Next action:** approve Phase 1 (and confirm the D6 cost defaults).
+**Next action:** final plan approval for Phase 1 implementation, including the D6 cost defaults. Do not start Phase 1 implementation before that approval.
