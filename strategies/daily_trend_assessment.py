@@ -36,7 +36,9 @@ from models.trend_assessment import (
 class DailyTrendAssessment:
     """
     Evaluates the Daily Bias for a single point in time, using only
-    completed daily candles (candles with timestamp <= current_time).
+    daily candles that have fully closed at `current_time` (see
+    MarketData.daily_history_until). During day D, day D's own candle is
+    still forming and is never used.
 
     Rules evaluated:
         1. EMA Alignment  - EMA20 > EMA50. Required. Determines whether

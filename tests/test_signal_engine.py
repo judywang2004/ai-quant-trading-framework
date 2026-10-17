@@ -113,6 +113,17 @@ class SignalEngineTests(unittest.TestCase):
         self.assertEqual(record.confidence, opportunity.confidence)
         self.assertEqual(record.quality, opportunity.quality)
 
+    def test_signal_is_available_only_when_its_bar_closes(self):
+        # timestamp labels the H1 bar (its open); the signal cannot exist
+        # before that bar has closed one hour later.
+        context = _context()
+
+        record = self.engine.run([context], detectors=[_AlwaysDetector()])[0]
+
+        self.assertEqual(record.timestamp, datetime(2024, 1, 1, 0, 0))
+        self.assertEqual(record.signal_available_time, datetime(2024, 1, 1, 1, 0))
+        self.assertGreater(record.signal_available_time, record.timestamp)
+
     def test_uses_detector_name_attribute_when_present(self):
         result = self.engine.run([_context()], detectors=[_AlwaysDetector()])
 

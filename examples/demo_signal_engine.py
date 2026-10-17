@@ -31,6 +31,7 @@ from datetime import date, datetime
 
 from backtesting.signal_engine import SignalEngine
 from core.market_context import MarketContext
+from core.timeframes import candle_close_time
 from data.market_loader import load_market_data
 from indicators.ema import calculate_ema
 from patterns.high_base_detector import HighBaseDetector
@@ -69,14 +70,19 @@ def build_h1_contexts(market, strategy) -> list[MarketContext]:
         ema20_series = calculate_ema(closes, 20)
         ema50_series = calculate_ema(closes, 50)
 
-        current_time = candles[-1].timestamp
-        daily_assessment = strategy.daily_bias(market, current_time)
+        # The context is labeled with the H1 candle's open timestamp (as
+        # TradingView shows it), but the decision is made at that candle's
+        # close - the earliest moment its OHLC is known. Daily Bias must be
+        # evaluated at that same moment so it cannot see a daily candle
+        # that is still forming.
+        decision_time = candle_close_time(candles[-1])
+        daily_assessment = strategy.daily_bias(market, decision_time)
 
         contexts.append(
             MarketContext(
                 symbol=candles[-1].symbol,
                 timeframe="H1",
-                timestamp=current_time,
+                timestamp=candles[-1].timestamp,
                 candles=candles,
                 ema20=ema20_series[-1] if ema20_series else None,
                 ema50=ema50_series[-1] if ema50_series else None,

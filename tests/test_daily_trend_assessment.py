@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta
 
 from core.market_data import MarketData
+from core.timeframes import candle_close_time
 from indicators.ema import calculate_ema
 from models.candle import Candle
 from models.market_bias import MarketBias
@@ -26,6 +27,11 @@ def _make_daily_market(closes, start=datetime(2024, 1, 1)):
     return MarketData(daily=candles, h1=[], m15=[], m5=[])
 
 
+def _last_close_time(market):
+    """Decision time at which every daily candle in `market` has closed."""
+    return candle_close_time(market.daily[-1])
+
+
 class DailyTrendAssessmentTests(unittest.TestCase):
     # ------------------------------------------------------------------
     # Insufficient history
@@ -36,7 +42,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         market = _make_daily_market(closes)
         assessment = DailyTrendAssessment()
 
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         self.assertEqual(result.bias, MarketBias.NEUTRAL)
         self.assertEqual(result.strength, TrendStrength.NONE)
@@ -55,7 +61,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         market = _make_daily_market(closes)
         assessment = DailyTrendAssessment()
 
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         self.assertEqual(result.bias, MarketBias.NEUTRAL)
         self.assertEqual(result.strength, TrendStrength.NONE)
@@ -71,7 +77,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         market = _make_daily_market(closes)
         assessment = DailyTrendAssessment()  # default thresholds: 0.0
 
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         self.assertEqual(result.bias, MarketBias.BULLISH)
         self.assertEqual(result.strength, TrendStrength.STRONG)
@@ -91,7 +97,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         market = _make_daily_market(closes)
         assessment = DailyTrendAssessment(min_ema_separation_pct=1.0)  # 100%, unreachable
 
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         self.assertEqual(result.bias, MarketBias.BULLISH)
         self.assertEqual(result.strength, TrendStrength.WEAK)
@@ -108,8 +114,8 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         lenient = DailyTrendAssessment(min_ema_separation_pct=0.0)
         strict = DailyTrendAssessment(min_ema_separation_pct=1.0)
 
-        lenient_result = lenient.assess(market, market.daily[-1].timestamp)
-        strict_result = strict.assess(market, market.daily[-1].timestamp)
+        lenient_result = lenient.assess(market, _last_close_time(market))
+        strict_result = strict.assess(market, _last_close_time(market))
 
         self.assertEqual(lenient_result.strength, TrendStrength.STRONG)
         self.assertEqual(strict_result.strength, TrendStrength.WEAK)
@@ -139,7 +145,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         assessment = DailyTrendAssessment(
             flat_slope_threshold_pct=raw_slope_pct * 10
         )
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         self.assertEqual(result.ema20_slope_status, SlopeStatus.FLAT)
         self.assertEqual(result.bias, MarketBias.BULLISH)
@@ -165,7 +171,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         self.assertLess(expected_slope, 0)
         self.assertGreater(ema20[-1], ema50[-1])
 
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         self.assertEqual(result.ema20_slope_status, SlopeStatus.FALLING)
         self.assertTrue(result.rule(DailyTrendAssessment.RULE_EMA_ALIGNMENT).passed)
@@ -182,7 +188,7 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         market = _make_daily_market(closes)
         assessment = DailyTrendAssessment()
 
-        result = assessment.assess(market, market.daily[-1].timestamp)
+        result = assessment.assess(market, _last_close_time(market))
 
         rule = result.rule(DailyTrendAssessment.RULE_MARKET_STRUCTURE)
         self.assertIsNone(rule.passed)
@@ -200,19 +206,49 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         assessment = DailyTrendAssessment()
 
         cutoff_index = 69  # exclude the last 30 candles
-        cutoff_time = market.daily[cutoff_index].timestamp
+        cutoff_time = candle_close_time(market.daily[cutoff_index])
 
         truncated_market = _make_daily_market(closes[: cutoff_index + 1])
 
         result = assessment.assess(market, cutoff_time)
         expected = assessment.assess(
-            truncated_market, truncated_market.daily[-1].timestamp
+            truncated_market, _last_close_time(truncated_market)
         )
 
         self.assertEqual(result.ema20, expected.ema20)
         self.assertEqual(result.ema50, expected.ema50)
         self.assertEqual(result.ema20_slope, expected.ema20_slope)
         self.assertEqual(result.ema20_slope_status, expected.ema20_slope_status)
+
+    def test_intraday_assessment_ignores_the_still_forming_daily_candle(self):
+        # Regression: at any time during day D, day D's candle has not
+        # closed, so its close must not influence the assessment.
+        closes = [float(i) for i in range(1, 101)]
+        crashed = closes[:-1] + [1.0]  # same history, last day crashes
+
+        assessment = DailyTrendAssessment()
+        intraday = _make_daily_market(closes).daily[-1].timestamp + timedelta(hours=13)
+
+        normal = assessment.assess(_make_daily_market(closes), intraday)
+        with_crash = assessment.assess(_make_daily_market(crashed), intraday)
+
+        self.assertEqual(normal.ema20, with_crash.ema20)
+        self.assertEqual(normal.ema50, with_crash.ema50)
+        self.assertEqual(normal.strength, with_crash.strength)
+        self.assertIn("Date: 2024-04-08", normal.explanation)  # day 99, not 100
+
+    def test_daily_candle_counts_once_it_has_closed(self):
+        closes = [float(i) for i in range(1, 101)]
+        market = _make_daily_market(closes)
+        assessment = DailyTrendAssessment()
+
+        just_before_close = _last_close_time(market) - timedelta(seconds=1)
+
+        before = assessment.assess(market, just_before_close)
+        at_close = assessment.assess(market, _last_close_time(market))
+
+        self.assertNotEqual(before.ema20, at_close.ema20)
+        self.assertIn("Date: 2024-04-09", at_close.explanation)  # day 100
 
     def test_slope_lookback_is_configurable(self):
         closes = [float(i) for i in range(1, 101)]
@@ -221,8 +257,8 @@ class DailyTrendAssessmentTests(unittest.TestCase):
         short_lookback = DailyTrendAssessment(slope_lookback=3)
         long_lookback = DailyTrendAssessment(slope_lookback=20)
 
-        short_result = short_lookback.assess(market, market.daily[-1].timestamp)
-        long_result = long_lookback.assess(market, market.daily[-1].timestamp)
+        short_result = short_lookback.assess(market, _last_close_time(market))
+        long_result = long_lookback.assess(market, _last_close_time(market))
 
         self.assertNotEqual(short_result.ema20_slope, long_result.ema20_slope)
 

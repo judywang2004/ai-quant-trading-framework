@@ -62,7 +62,11 @@ class SignalEngine:
                     continue
 
                 records.append(
-                    SignalRecord.from_opportunity(opportunity, _detector_name(detector))
+                    SignalRecord.from_opportunity(
+                        opportunity,
+                        _detector_name(detector),
+                        signal_available_time=context.signal_available_time,
+                    )
                 )
 
         return records

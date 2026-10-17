@@ -24,6 +24,7 @@ and passed in.
 from dataclasses import dataclass
 from datetime import datetime
 
+from core.timeframes import candle_close_time
 from models.candle import Candle
 from models.trend_assessment import DailyTrendResult
 
@@ -62,3 +63,32 @@ class MarketContext:
     def latest_candle(self) -> Candle | None:
         """The most recent candle in `candles`, or None if empty."""
         return self.candles[-1] if self.candles else None
+
+    # ------------------------------------------------------------------
+    # Time semantics (see docs/adr/ADR-003-bar-time-semantics.md)
+    #
+    #   bar_open_time         - when the latest candle STARTED forming.
+    #                           A label (what TradingView shows), never
+    #                           a moment at which anything is known.
+    #   signal_available_time - when the latest candle CLOSED: the
+    #                           earliest moment any fact or Opportunity
+    #                           derived from this context exists.
+    #   execution_time        - not a context concept. Decided by an
+    #                           executor, and always strictly after
+    #                           signal_available_time.
+    #
+    # `timestamp` is the context's label and is not guaranteed to equal
+    # either property; consumers that need "when could I act on this?"
+    # must use signal_available_time.
+    # ------------------------------------------------------------------
+
+    @property
+    def bar_open_time(self) -> datetime | None:
+        """Open time of the latest candle, or None if there are no candles."""
+        return self.latest_candle.timestamp if self.candles else None
+
+    @property
+    def signal_available_time(self) -> datetime | None:
+        """Close time of the latest candle - the earliest moment anything
+        derived from this context is known. None if there are no candles."""
+        return candle_close_time(self.latest_candle) if self.candles else None

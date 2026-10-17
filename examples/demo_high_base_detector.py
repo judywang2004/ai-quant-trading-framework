@@ -7,6 +7,7 @@ script assembles one directly from MarketData just to demonstrate the
 detect(context) -> Opportunity | None pipeline end to end.
 """
 
+from core.timeframes import candle_close_time
 from data.market_loader import load_market_data
 from indicators.ema import calculate_ema
 from patterns.high_base_detector import HighBaseDetector
@@ -18,7 +19,8 @@ EMA20_HISTORY_WINDOW = 5
 
 
 def build_h1_context(market, current_time, strategy) -> MarketContext:
-    candles = tuple(c for c in market.h1 if c.timestamp <= current_time)
+    # Only H1 candles that have fully closed at current_time.
+    candles = tuple(market.h1_history_until(current_time))
     closes = [c.close for c in candles]
 
     ema20_series = calculate_ema(closes, 20) if len(closes) >= 20 else []
@@ -33,7 +35,9 @@ def build_h1_context(market, current_time, strategy) -> MarketContext:
     return MarketContext(
         symbol=candles[-1].symbol if candles else "UNKNOWN",
         timeframe="H1",
-        timestamp=current_time,
+        # Label with the latest closed H1 candle's open time, like
+        # demo_signal_engine.build_h1_contexts (see ADR-003).
+        timestamp=candles[-1].timestamp if candles else current_time,
         candles=candles,
         ema20=ema20,
         ema50=ema50,
@@ -48,10 +52,11 @@ def main():
     strategy = TrendPullbackStrategy()
     detector = HighBaseDetector()
 
-    current = market.m5[1000]
-    context = build_h1_context(market, current.timestamp, strategy)
+    current = market.m15[1000]
+    context = build_h1_context(market, candle_close_time(current), strategy)
 
     print(f"MarketContext: {context.symbol} {context.timeframe} @ {context.timestamp}")
+    print(f"Signal available  : {context.signal_available_time}")
     print(f"Candles available : {len(context.candles)}")
     print(f"EMA20 / EMA50     : {context.ema20} / {context.ema50}")
     print(f"Daily Bias        : {context.daily_assessment.bias.name}")
