@@ -74,6 +74,14 @@ Do not introduce additional strategy ideas until the MVP has been validated.
 
 ---
 
+# Forex Research Track
+
+The existing Daily Bias → H1 Pullback → M15 Setup → M5 Trigger strategy remains the primary MVP and must be preserved. A separate Forex Research Track is authorized to develop research infrastructure and benchmark strategies, beginning with Donchian. This does not authorize replacing or deleting existing strategies.
+
+Requirements and approved decisions: docs/forex/FOREX_RESEARCH_TRACK.md
+
+---
+
 # Strategy Development Process
 
 Every trading rule must follow this workflow.
