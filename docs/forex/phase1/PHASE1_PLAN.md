@@ -3,7 +3,10 @@
 **Status:** PROPOSED. Awaiting confirmation. No Phase 1 code has been written.
 
 Governing records: `DECISIONS.md` (binding), `FOREX_RESEARCH_TRACK.md`,
-`INTEGRATION_PLAN.md`, ADR-003.
+`INTEGRATION_PLAN.md`, `VALIDATION_WORKFLOW.md`, ADR-003.
+
+Phase 1 is part of Stage 2 (Python research framework) of the D11 validation
+workflow. It doesn't depend on Stage 1 (Pine).
 
 **Out of scope:** the Donchian strategy and the ATR/Donchian indicators
 (Phase 2), any change to the MVP strategy or the High Base research, M1 or
@@ -19,6 +22,7 @@ live/MT5 execution.
 | C1 | D06: "Model spread, commission, slippage, **and swap**." | "First version may use zero swap; reports must state 'Swap not modeled.'" | Swap = 0 in Phase 1. Every report prints the exact line `Swap not modeled.` and never calls results "fully realistic net performance". **Please confirm, and amend D06 if you want the registry to reflect this deferral.** |
 | C2 | D08: out-of-sample and walk-forward validation | Phase 1 = infrastructure | Phase 1 supports **date-window runs** (`--start/--end`) and per-year tables, so in-sample/out-of-sample splits are possible. A walk-forward **runner** is deferred to Phase 2 or later. |
 | C3 | ADR-003: execution "strictly after `signal_available_time`" | M5 execution | An H1 signal available at 13:00:00 fills at the **open of the M5 bar starting 13:00**. That's the first price after the H1 close, but its *bar timestamp* equals `signal_available_time`. The engine enforces `fill_bar.open_time >= signal_available_time`, never a bar that opened earlier. **Please confirm this reading.** An optional `execution_delay_bars` (default 0) is available for stricter tests. |
+| C4 | D03/D07 summary rows: "M1 Dukascopy Bid/Ask is raw source data, resampled to H1 signals and M5 execution bars." | D11: "Prefer M5 data for Python execution simulation. M1 is optional, not mandatory." | The detailed D03/D07 text already says M1 "may be used", so M1-as-source stays supported. Proposed addition: the loader also accepts **Dukascopy M5 bid/ask exports directly** (H1 is then resampled from M5). M1 import stays optional. M1 is never an execution or signal timeframe. **Resolved 2026-10-17:** approved. D03/D07 revised: M5 Bid/Ask preferred, M1 optional (resampled to M5), H1 derived from validated M5. |
 
 D05's 10% maximum-drawdown *research objective* is reported as a pass/fail
 line against the measured max drawdown. It's informational and never used
@@ -27,19 +31,23 @@ to change parameters.
 ## 2. Design summary
 
 ```
-Dukascopy M1 BID csv ─┐
-                      ├─► M1 QuoteBars (UTC) ─► quality report
-Dukascopy M1 ASK csv ─┘          │
-                                 ├─► resample (bid & ask independently) ─► M5 QuoteBars ─┐
-                                 └─► resample (bid & ask independently) ─► H1 QuoteBars ─┤
-                                                                                        ▼
-                                                   quote store (CSV.gz + manifest JSON, outside Git)
-                                                                                        │
-             test/stub strategy (Phase 1) ─► BacktestEngine (M5 event loop, H1 released at close)
-                                                   │  risk sizing (0.25% cap, min-lot skip)
-                                                   │  BacktestExecutor (bid/ask fills, slippage, commission)
-                                                   ▼
-                                ledger CSV · equity CSV · report (metrics, sensitivity 0.2/0.5/1.0 pip)
+Dukascopy M5 BID+ASK csv (preferred)        Dukascopy M1 BID+ASK csv (optional)
+              │                                          │
+              │                       resample to M5 (bid & ask independently)
+              └──────────────────┬───────────────────────┘
+                                 ▼
+                     M5 QuoteBars (UTC) ─► quality report
+                                 │
+                         validated M5 QuoteBars ─► resample (bid & ask independently) ─► H1 QuoteBars
+                                 │                                                          │
+                                 ▼                                                          ▼
+                     quote store (Parquet + manifest JSON, outside Git)
+                                 │
+   test/stub strategy (Phase 1) ─► BacktestEngine (M5 event loop, H1 released at close)
+                                 │  risk sizing (0.25% cap, min-lot skip)
+                                 │  BacktestExecutor (bid/ask fills, slippage, commission)
+                                 ▼
+          ledger CSV · equity CSV · report (metrics, sensitivity 0.2/0.5/1.0 pip)
 ```
 
 Principles:
@@ -48,7 +56,10 @@ Principles:
   files** (`backtesting/engine.py`, `metrics.py`, `report.py`,
   `execution/backtest_executor.py`, `models/position.py`, `config/settings.py`).
   All of these are 0 bytes today and nothing imports them.
-- **No new dependencies.** stdlib (`csv`, `gzip`, `json`, `zoneinfo`,
+- **Dependencies: pandas + pyarrow** for Parquet storage (D11), declared in
+  `requirements.txt` in commit 1.6. pandas is used at the storage boundary
+  (write/read Parquet). The engine still consumes `QuoteBar` objects, so its
+  design is unchanged. Everything else is stdlib (`csv`, `json`, `zoneinfo`,
   `hashlib`) plus matplotlib (already declared) for an optional equity PNG.
 - **No changes to existing models.** `Candle`, `Signal`, `Trade`,
   `MarketData`, `PositionSizer` and `SimulatedExecutor` are untouched. The
@@ -70,11 +81,11 @@ Principles:
 | File | Status | Content |
 |---|---|---|
 | `data/fx_time.py` | new | `to_utc(naive, source_tz)` (zoneinfo, explicit handling of DST-ambiguous and nonexistent times). `TradingDayBoundary(hour=17, minute=0, tz="America/New_York")`, configurable, with `trading_day_start(t_utc)`. Bucket helpers: M5/H1 floor in UTC; D1 by boundary. |
-| `data/dukascopy_loader.py` | new | Parse Dukascopy M1 CSV exports (header detected: `Gmt time` / `Time (UTC)` variants, `dd.mm.yyyy HH:MM:SS.fff`). Unknown formats fail loudly. Merge BID + ASK by timestamp into M1 `QuoteBar`s. Unmatched minutes and Dukascopy flat filler bars (O=H=L=C, volume 0) are **dropped and counted**, never silently. Returns bars + `SourceMetadata`. |
+| `data/dukascopy_loader.py` | new | Parse Dukascopy M5 CSV exports (preferred) and optional M1 exports. The input timeframe is declared and checked against the timestamp spacing (header detected: `Gmt time` / `Time (UTC)` variants, `dd.mm.yyyy HH:MM:SS.fff`). Unknown formats fail loudly. Merge BID + ASK by timestamp into M5 (or M1) `QuoteBar`s. Unmatched timestamps and Dukascopy flat filler bars (O=H=L=C, volume 0) are **dropped and counted**, never silently. Returns bars + `SourceMetadata`. |
 | `data/source_metadata.py` | new | `SourceMetadata`/manifest: provider, symbol, price sides, source timezone, file names, SHA-256, row counts, dropped counts, first/last UTC timestamp, import time, boundary config. Serialized as JSON next to the stored data (registry D07: preserve source timezone metadata). |
-| `data/resample.py` | new | `resample(bars, "M5" | "H1" | "D1", boundary)`. **Bid and ask aggregated independently**: open = first, high = max, low = min, close = last per side; the bar timestamp is the bucket open (UTC); `component_count` is recorded. Never forward-fills missing minutes. Rejects M1 as an output timeframe for research use (registry D03). |
+| `data/resample.py` | new | `resample(bars, "M5" | "H1" | "D1", boundary)`: optional M1 → M5, and validated M5 → H1/D1. **Bid and ask aggregated independently**: open = first, high = max, low = min, close = last per side; the bar timestamp is the bucket open (UTC); `component_count` is recorded. Never forward-fills missing bars. Rejects M1 as an output timeframe for research use (registry D03). |
 | `data/quality.py` | new | `QualityReport` over M1/M5/H1 quote bars: duplicates, non-monotonic timestamps, ask < bid, per-side OHLC inconsistency, spread stats (pips: median, p95, p99, max), **gaps** (expected weekend vs. unexpected intra-session, with a list), **session boundaries** (weekly open/close observed in New York local time), **DST checks** (US/EU transition weeks: the weekly open must stay at the configured NY boundary while its UTC time shifts by 1h). Plain-text summary for reports. |
-| `data/quote_store.py` | new | Write/read normalized M5 and H1 quote bars as **per-year `CSV.gz`** plus `manifest.json` under an external root. Streaming reader (year by year). Refuses to write inside the Git working tree. |
+| `data/quote_store.py` | new | Write/read normalized M5 and H1 quote bars as **per-year Parquet files** (pandas + pyarrow; UTC `timestamp[ns, tz=UTC]` column, explicit schema) plus `manifest.json` under an external root. Streaming reader (year by year). Refuses to write inside the Git working tree. |
 | `config/settings.py` | fill placeholder | `market_data_root()` from env var `AQTF_MARKET_DATA_ROOT`, with a clear error if it's unset. No defaults inside the repo. |
 
 ### risk/
@@ -119,10 +130,10 @@ synthetic CSVs under `tests/fixtures/dukascopy/` (a few KB, committed).
 |---|---|---|
 | 1.1 | `feat: add QuoteBar and Instrument models` | `models/quote_bar.py`, `models/instrument.py` + tests |
 | 1.2 | `feat: add UTC conversion and configurable FX trading-day boundary` | `data/fx_time.py` + tests |
-| 1.3 | `feat: import Dukascopy M1 bid/ask with source metadata` | `data/dukascopy_loader.py`, `data/source_metadata.py`, fixtures + tests |
+| 1.3 | `feat: import Dukascopy M5/M1 bid/ask with source metadata` | `data/dukascopy_loader.py`, `data/source_metadata.py`, fixtures + tests |
 | 1.4 | `feat: resample quotes to M5/H1/D1 with independent bid/ask aggregation` | `data/resample.py` + tests |
 | 1.5 | `feat: add quote data quality report` | `data/quality.py` + tests |
-| 1.6 | `feat: add external quote store and Dukascopy import CLI` | `data/quote_store.py`, `config/settings.py`, `examples/import_dukascopy.py` + tests |
+| 1.6 | `feat: add external Parquet quote store and Dukascopy import CLI` | `data/quote_store.py`, `config/settings.py`, `examples/import_dukascopy.py`, `requirements.txt` (pandas, pyarrow) + tests |
 | 1.7 | `feat: add cost model and risk-capped lot sizing` | `backtesting/costs.py`, `risk/lot_sizing.py` + tests |
 | 1.8 | `feat: add position manager and bid/ask backtest executor` | `models/position.py`, `risk/position_manager.py`, `execution/backtest_executor.py`, `backtesting/ledger.py` + tests |
 | 1.9 | `feat: implement event-driven M5 backtest engine` | `backtesting/strategy_protocol.py`, `backtesting/engine.py` + tests |
@@ -132,12 +143,12 @@ synthetic CSVs under `tests/fixtures/dukascopy/` (a few KB, committed).
 ## 5. Acceptance tests
 
 **Data**
-- A1: Dukascopy BID+ASK fixture → M1 QuoteBars with tz-aware UTC timestamps. A minute missing on one side is dropped and counted. Flat filler bars are dropped and counted. An unknown header raises.
+- A1: Dukascopy M5 BID+ASK fixture → M5 QuoteBars with tz-aware UTC timestamps (and the same for an optional M1 fixture). A bar missing on one side is dropped and counted. Flat filler bars are dropped and counted. An unknown header raises.
 - A2: Naive source times in a DST zone convert correctly, including ambiguous (fall-back) and nonexistent (spring-forward) local times.
-- A3: Resample: hand-computed M5 and H1 bars from a fixture where bid and ask extremes occur in **different** minutes. The test proves independent aggregation (ask_high ≠ bid_high + constant spread). `component_count` is correct. No forward-fill.
+- A3: Resample: hand-computed H1 bars from an M5 fixture (and M5 bars from an optional M1 fixture) where bid and ask extremes occur in **different** source bars. The test proves independent aggregation (ask_high ≠ bid_high + constant spread). `component_count` is correct. No forward-fill.
 - A4: D1 with the 17:00 NY boundary: a Sunday-evening open belongs to Monday's trading day, and the boundary's UTC hour shifts by 1 across **both** US DST transitions. A non-default boundary (e.g. 00:00 UTC) yields different bars.
 - A5: Quality: duplicates, out-of-order, ask < bid, OHLC violations, an unexpected mid-session gap, an expected weekend gap and a DST week are each detected and classified on fixtures.
-- A6: Store round-trip: write → read reproduces bars and manifest exactly. Writing inside the repo is refused. Source timezone and file hashes are preserved.
+- A6: Store round-trip: write → read of Parquet reproduces bars (including UTC tz and float prices) and manifest exactly. Writing inside the repo is refused. Source timezone and file hashes are preserved.
 
 **Risk**
 - A7: EURUSD, $10,000 equity, 20-pip stop + 0.2-pip slippage → lots round **down** to 0.01 steps and risk ≤ $25 (0.25%).
@@ -165,7 +176,7 @@ synthetic CSVs under `tests/fixtures/dukascopy/` (a few KB, committed).
 - A21: All existing tests (205) pass unchanged after every commit. All existing demos still run. `git diff` shows no modifications to MVP, High Base, validation or existing model files.
 
 **Real data (conditional)**
-- A22: If you provide Dukascopy EURUSD M1 BID+ASK files, import 2015–2025, and record the quality report and manifest summary in `PHASE1_REVIEW.md`. The smoke run produces a full report. No strategy conclusions are drawn.
+- A22: If you provide Dukascopy EURUSD M5 BID+ASK files (or optional M1), import 2015–2025, and record the quality report and manifest summary in `PHASE1_REVIEW.md`. The smoke run produces a full report. No strategy conclusions are drawn.
 
 ## 6. Compatibility impact
 
@@ -174,7 +185,7 @@ synthetic CSVs under `tests/fixtures/dukascopy/` (a few KB, committed).
 - **Public interfaces:** unchanged. `Signal`, `Candle`, `Trade`,
   `MarketData`, `PositionSizer` and `SimulatedExecutor` are untouched.
   `PositionSizer` is reused, not altered.
-- **Dependencies:** none added.
+- **Dependencies:** pandas and pyarrow added (D11). pandas is already installed but undeclared. pyarrow is new.
 - **Repository size:** only small synthetic fixtures are committed. Real
   market data lives under `AQTF_MARKET_DATA_ROOT` outside Git.
 - **Performance:** ~740k M5 bars per 10 EURUSD years, streamed per year.
@@ -183,7 +194,8 @@ synthetic CSVs under `tests/fixtures/dukascopy/` (a few KB, committed).
 
 ## 7. Open items needing your input
 
-1. Confirm conflicts **C1–C3** (§1).
+1. Confirm conflicts **C1–C3** (§1). C4 is resolved.
 2. Choose the data location (proposed: `/Volumes/ExternalData/market_data/`) for `AQTF_MARKET_DATA_ROOT`.
-3. Real-data acceptance (A22) needs the Dukascopy EURUSD M1 **BID and ASK** CSV exports for 2015–2025. Without them, Phase 1 completes on fixtures only.
+3. Real-data acceptance (A22) needs the Dukascopy EURUSD **M5 BID and ASK** CSV exports for 2015–2025 (M1 optional). Without them, Phase 1 completes on fixtures only.
 4. Git: push and PR are on hold, as you instructed.
+5. Parquet storage replaces the earlier `CSV.gz` proposal (D11). Adding `pandas` and `pyarrow` is **approved** (2026-10-17). They are declared explicitly in `requirements.txt` in commit 1.6 with compatible-release constraints (e.g. `pandas~=3.0`, matching the installed 3.0.3, and `pyarrow` constrained the same way to the version installed then). Nothing is installed or declared before Phase 1 approval.
