@@ -6,9 +6,9 @@ from data.mt4_csv_loader import load_mt4_csv
 def main():
 
     candles = load_mt4_csv(
-        Path("data/raw/USDJPY_M5.csv"),
+        Path("data/raw/USDJPY_M15.csv"),
         symbol="USDJPY",
-        timeframe="M5",
+        timeframe="M15",
     )
 
     print()

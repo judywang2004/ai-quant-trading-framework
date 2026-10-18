@@ -1,3 +1,4 @@
+from core.timeframes import candle_close_time
 from data.market_loader import load_market_data
 
 
@@ -5,31 +6,37 @@ def main():
 
     market = load_market_data("data/raw")
 
-    current = market.m5[1006]
+    current = market.m15[1006]
 
-    print()
-
-    print("M5")
-
-    print(current)
-
-    print()
-
-    print("Daily")
-
-    print(market.daily_at(current.timestamp))
-
-    print()
-
-    print("H1")
-
-    print(market.h1_at(current.timestamp))
+    # The latest candle of each timeframe that has fully closed by the
+    # close of the current M15 candle.
+    decision_time = candle_close_time(current)
 
     print()
 
     print("M15")
 
-    print(market.m15_at(current.timestamp))
+    print(current)
+
+    print(f"Decision time: {decision_time}")
+
+    print()
+
+    print("Daily (last closed)")
+
+    print(market.daily_at(decision_time))
+
+    print()
+
+    print("H1 (last closed)")
+
+    print(market.h1_at(decision_time))
+
+    print()
+
+    print("M15 (last closed)")
+
+    print(market.m15_at(decision_time))
 
 
 if __name__ == "__main__":

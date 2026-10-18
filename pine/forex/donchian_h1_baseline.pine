@@ -1,0 +1,239 @@
+//@version=6
+// =============================================================================
+// Donchian H1 Baseline: Forex Research Track, Stage 1 (visual sanity check)
+// -----------------------------------------------------------------------------
+// Spec:         docs/forex/VALIDATION_WORKFLOW.md §2 (DECISIONS.md D11)
+// Purpose:      check on a chart that the baseline rules behave as intended.
+//               This checks rule logic only.
+// NOT EVIDENCE: Strategy Tester results from this script do not prove
+//               profitability. Research evidence comes from the Python
+//               framework (out-of-sample, walk-forward, cost sensitivity).
+// Sizing:       DIAGNOSTIC ONLY, NOT broker-accurate. It ignores spread,
+//               commission, slippage, contract specs and margin. It assumes
+//               TradingView quantity = base-currency units (EURUSD: 1 qty =
+//               1 EUR, syminfo.pointvalue = 1). The UNIT CHECK label and the
+//               exit labels verify this on the chart.
+// Costs:        commission and slippage default to 0 in the strategy
+//               properties. TradingView models neither spread nor swap.
+//
+// Rules
+//   Entry  : on a confirmed H1 close beyond the 20-bar channel of the prior
+//            completed bars. Market order, filled at the next bar's open.
+//   Stop   : fixed at actual entry fill -/+ 2 x ATR(14) captured on the
+//            signal bar. Set once, never moved. No trailing stop.
+//   Exit   : separate, close-confirmed condition. On a confirmed H1 close
+//            beyond the opposite 10-bar channel of the prior completed bars,
+//            close at the next bar's open.
+//   Limits : one position at a time, no pyramiding, no automatic reversal,
+//            no weekly trade limit, no martingale or grid.
+// =============================================================================
+strategy(
+     title                   = "Donchian H1 Baseline (research sanity check)",
+     shorttitle              = "Donchian H1",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = false,
+     calc_on_every_tick      = false,
+     calc_on_order_fills     = false,
+     initial_capital         = 10000,
+     currency                = currency.USD,
+     max_labels_count        = 500)
+
+// ---- Approved baseline parameters. Constants, not inputs, so they can't be tuned. ----
+const int    ENTRY_CHANNEL_BARS  = 20
+const int    EXIT_CHANNEL_BARS   = 10
+const int    ATR_LENGTH          = 14
+const float  ATR_STOP_MULTIPLIER = 2.0
+// D05: 0.25% of equity. Unchanged until the user approves a revision.
+const float  RISK_FRACTION       = 0.0025
+// 0.01 lot = 1,000 base-currency units. Diagnostic sizing rounds down to this step.
+const float  LOT_STEP_UNITS      = 1000.0
+const float  EXPECTED_POINT_VALUE = 1.0
+const string REQUIRED_TIMEFRAME  = "60"
+
+const string ATR_STOP_TAG      = "ATR_STOP"
+const string DONCHIAN_EXIT_TAG = "DONCHIAN_EXIT"
+const string TIME_FORMAT       = "yyyy-MM-dd HH:mm"
+
+enum DirectionMode
+    LONG_ONLY  = "LONG_ONLY"
+    SHORT_ONLY = "SHORT_ONLY"
+    BOTH       = "BOTH"
+
+directionMode = input.enum(DirectionMode.BOTH, "Direction mode")
+showLabels    = input.bool(true, "Show signal / fill / exit labels")
+// Display only: label times. Bars, signals and fills are not affected.
+// "UTC-4" is a fixed offset all year. "America/New_York" follows DST
+// (UTC-4 in summer, UTC-5 in winter), like TradingView's "New York" chart timezone.
+displayTimeZone = input.string("America/New_York", "Label timezone", options = ["UTC-4", "America/New_York", "UTC"])
+
+if timeframe.period != REQUIRED_TIMEFRAME
+    runtime.error("Donchian H1 baseline: apply this script to an H1 (60-minute) chart only.")
+
+// ---- Channels and ATR ------------------------------------------------------------
+// For bar t, both channels cover only completed bars BEFORE t (t-N … t-1).
+entryUpper = ta.highest(high, ENTRY_CHANNEL_BARS)[1]
+entryLower = ta.lowest(low, ENTRY_CHANNEL_BARS)[1]
+exitUpper  = ta.highest(high, EXIT_CHANNEL_BARS)[1]
+exitLower  = ta.lowest(low, EXIT_CHANNEL_BARS)[1]
+// ta.atr uses RMA (Wilder smoothing).
+atrValue   = ta.atr(ATR_LENGTH)
+
+// ---- Per-trade bookkeeping ---------------------------------------------------------
+// One record per submitted entry, stored under that trade's unique entry ID
+// (L0, S1, L2, …). Every lookup goes through the trade's own ID, never "the
+// latest" value, so diagnostics can't use another trade's stop distance.
+// Unique IDs also mean a stop order left from an earlier trade can never
+// attach to a later one.
+var array<string> tradeEntryIds   = array.new<string>()
+var array<int>    tradeStopTicks  = array.new<int>()
+var array<int>    tradeSignalTime = array.new<int>()
+var int           knownTradeCount  = 0
+var int           knownClosedCount = 0
+
+// Index of a trade's record, or -1 if the ID is unknown (shown as a mismatch).
+recordIndex(string entryId) =>
+    tradeEntryIds.indexof(entryId)
+
+formatTime(int t) =>
+    str.format_time(t, TIME_FORMAT, displayTimeZone) + " " + displayTimeZone
+
+formatPrice(float p) =>
+    str.tostring(p, format.mintick)
+
+// Expected fixed stop for one trade, from its actual fill and its own tick distance.
+stopFromFill(float fillPrice, bool isLong, int ticks) =>
+    float offset = ticks * syminfo.mintick
+    isLong ? fillPrice - offset : fillPrice + offset
+
+// DIAGNOSTIC sizing only. The risk distance (2 x ATR) doesn't depend on the fill
+// price, so it can be computed at the signal.
+diagnosticUnits(float stopDistance) =>
+    float riskAmount  = strategy.equity * RISK_FRACTION
+    float riskPerUnit = stopDistance * syminfo.pointvalue
+    math.floor(riskAmount / riskPerUnit / LOT_STEP_UNITS) * LOT_STEP_UNITS
+
+barClosed = barstate.isconfirmed
+
+// ---- 1. Entry fills (execution time) ---------------------------------------------
+int totalTrades = strategy.opentrades + strategy.closedtrades
+if totalTrades > knownTradeCount
+    // The newest trade is the open one, or the last closed one if it was
+    // stopped out on its fill bar.
+    string fillId    = ""
+    float  fillPrice = na
+    int    fillTime  = na
+    float  fillSize  = na
+    if strategy.opentrades > 0
+        fillId    := strategy.opentrades.entry_id(0)
+        fillPrice := strategy.opentrades.entry_price(0)
+        fillTime  := strategy.opentrades.entry_time(0)
+        fillSize  := strategy.opentrades.size(0)
+    else
+        int last = strategy.closedtrades - 1
+        fillId    := strategy.closedtrades.entry_id(last)
+        fillPrice := strategy.closedtrades.entry_price(last)
+        fillTime  := strategy.closedtrades.entry_time(last)
+        fillSize  := strategy.closedtrades.size(last)
+    int    idx       = recordIndex(fillId)
+    string fillText  = fillId + " FILL @ " + formatPrice(fillPrice) + "\nexecution " + formatTime(fillTime)
+    if idx < 0
+        fillText += "\nBOOKKEEPING MISMATCH: unknown entry ID"
+    else
+        fillText += "\nsignal " + formatTime(tradeSignalTime.get(idx)) + "\nexpected stop " + formatPrice(stopFromFill(fillPrice, fillSize > 0, tradeStopTicks.get(idx)))
+    if showLabels
+        label.new(bar_index, low, fillText, style = label.style_label_up, color = color.new(color.blue, 20), textcolor = color.white, size = size.small)
+    knownTradeCount := totalTrades
+
+// ---- 2. Closed trades: stop and unit verification ----------------------------------------
+if strategy.closedtrades > knownClosedCount
+    int    i          = strategy.closedtrades - 1
+    string tradeId    = strategy.closedtrades.entry_id(i)
+    int    idx        = recordIndex(tradeId)
+    float  entryPrice = strategy.closedtrades.entry_price(i)
+    float  exitPrice  = strategy.closedtrades.exit_price(i)
+    float  qty        = strategy.closedtrades.size(i)
+    string exitTag    = strategy.closedtrades.exit_comment(i)
+    string exitText   = tradeId + " EXIT " + exitTag + " @ " + formatPrice(exitPrice)
+    if idx < 0
+        exitText += "\nBOOKKEEPING MISMATCH: unknown entry ID"
+    else if exitTag == ATR_STOP_TAG
+        float expected  = stopFromFill(entryPrice, qty > 0, tradeStopTicks.get(idx))
+        int   diffTicks = math.round((exitPrice - expected) / syminfo.mintick)
+        // 0 ticks = stop measured from this trade's actual fill. Non-zero is
+        // expected only when the bar gapped through the stop (fill at the open).
+        exitText += "\nexpected " + formatPrice(expected) + "\ndiff " + str.tostring(diffTicks) + " ticks"
+    // Unit check: with zero costs, TradingView's P&L must equal
+    // qty x price move x pointvalue if qty is in base-currency units.
+    float unitPnl = qty * (exitPrice - entryPrice) * syminfo.pointvalue
+    exitText += "\nP&L TV " + str.tostring(strategy.closedtrades.profit(i), "#.##") + " / units calc " + str.tostring(unitPnl, "#.##")
+    if showLabels
+        label.new(bar_index, high, exitText, style = label.style_label_down, color = color.new(color.purple, 20), textcolor = color.white, size = size.small)
+    knownClosedCount := strategy.closedtrades
+
+// ---- 3. Open position: fixed stop for display; separate close-confirmed exit ----
+float  positionSize = strategy.position_size
+bool   inPosition   = positionSize != 0
+string openEntryId  = ""
+float  fixedStop    = na
+if inPosition
+    openEntryId := strategy.opentrades.entry_id(0)
+    int openIdx = recordIndex(openEntryId)
+    if openIdx >= 0
+        fixedStop := stopFromFill(strategy.opentrades.entry_price(0), positionSize > 0, tradeStopTicks.get(openIdx))
+
+longExitSignal  = barClosed and positionSize > 0 and not na(exitLower) and close < exitLower
+shortExitSignal = barClosed and positionSize < 0 and not na(exitUpper) and close > exitUpper
+if longExitSignal or shortExitSignal
+    strategy.close(openEntryId, comment = DONCHIAN_EXIT_TAG)
+
+// ---- 4. Entry signals on the confirmed H1 close (signal time) --------------------
+allowLong  = directionMode != DirectionMode.SHORT_ONLY
+allowShort = directionMode != DirectionMode.LONG_ONLY
+dataReady  = not na(entryUpper) and not na(entryLower) and not na(atrValue)
+
+longBreakout  = barClosed and dataReady and close > entryUpper
+shortBreakout = barClosed and dataReady and close < entryLower
+longSignal    = allowLong and not inPosition and longBreakout
+shortSignal   = allowShort and not inPosition and shortBreakout
+// A breakout while a position is open is ignored: never queued, never reversed.
+ignoredBreakout = inPosition and ((allowLong and longBreakout) or (allowShort and shortBreakout))
+
+if longSignal or shortSignal
+    float  stopDistance = ATR_STOP_MULTIPLIER * atrValue
+    float  units        = diagnosticUnits(stopDistance)
+    string side         = longSignal ? "LONG" : "SHORT"
+    float  labelY       = longSignal ? high : low
+    if units < LOT_STEP_UNITS
+        // Mirrors the min-lot skip rule (D05): never rounded up.
+        if showLabels
+            label.new(bar_index, labelY, "SKIP " + side + "\nDIAGNOSTIC size below 1,000 units at 0.25% risk", style = longSignal ? label.style_label_down : label.style_label_up, color = color.new(color.gray, 20), textcolor = color.white, size = size.small)
+    else
+        int    tradeNo   = tradeEntryIds.size()  // sequence number for a unique ID
+        int    stopTicks = math.round(stopDistance / syminfo.mintick)
+        string entryId   = (longSignal ? "L" : "S") + str.tostring(tradeNo)
+        tradeEntryIds.push(entryId)
+        tradeStopTicks.push(stopTicks)
+        tradeSignalTime.push(time_close)
+        // Market order placed at this close; fills at the next bar's open.
+        strategy.entry(entryId, longSignal ? strategy.long : strategy.short, qty = units, comment = side + " signal " + formatTime(time_close))
+        // Fixed stop: `loss` is in ticks from the entry price, so the level is
+        // fill -/+ 2 x signal-bar ATR, live from the fill bar. Placed once and
+        // never modified. The ID is unique to this trade.
+        strategy.exit(entryId + "-STOP", from_entry = entryId, loss = stopTicks, comment = ATR_STOP_TAG)
+        if showLabels
+            string reason = longSignal ? "close > " + formatPrice(entryUpper) + " (prior 20-bar high)" : "close < " + formatPrice(entryLower) + " (prior 20-bar low)"
+            label.new(bar_index, labelY, entryId + " " + side + " SIGNAL\n" + reason + "\nATR(14) " + formatPrice(atrValue) + " → stop " + str.tostring(stopTicks) + " ticks\nsignal " + formatTime(time_close) + "\nDIAGNOSTIC qty " + str.tostring(units, "#") + " units (not broker lots)", style = longSignal ? label.style_label_down : label.style_label_up, color = longSignal ? color.new(color.green, 20) : color.new(color.red, 20), textcolor = color.white, size = size.small)
+
+// ---- Unit check (once, on the last bar) --------------------------------------------
+if barstate.islast
+    string unitStatus = syminfo.pointvalue == EXPECTED_POINT_VALUE and syminfo.currency == "USD" ? "consistent with qty = base-currency units\nconfirm: exit labels P&L TV = units calc" : "CHECK: assumption does not hold, sizing invalid"
+    label.new(bar_index, high, "UNIT CHECK (diagnostic sizing)\n" + syminfo.tickerid + "  type " + syminfo.type + "\nbase " + syminfo.basecurrency + "  quote " + syminfo.currency + "\npointvalue " + str.tostring(syminfo.pointvalue) + "  mintick " + str.tostring(syminfo.mintick) + "\n" + unitStatus, style = label.style_label_left, color = color.new(color.black, 10), textcolor = color.white, size = size.small)
+
+// ---- Plots -----------------------------------------------------------------------
+plot(entryUpper, "Entry channel high (prior 20)", color = color.new(color.teal, 0))
+plot(entryLower, "Entry channel low (prior 20)", color = color.new(color.maroon, 0))
+plot(exitUpper, "Exit channel high (prior 10)", color = color.new(color.maroon, 70), style = plot.style_stepline)
+plot(exitLower, "Exit channel low (prior 10)", color = color.new(color.teal, 70), style = plot.style_stepline)
+plot(fixedStop, "Fixed ATR stop (fill -/+ 2 x ATR)", color = color.orange, style = plot.style_linebr, linewidth = 2)
+plotshape(ignoredBreakout, "Breakout ignored (position open)", shape.xcross, location.abovebar, color.new(color.gray, 0), size = size.tiny)
