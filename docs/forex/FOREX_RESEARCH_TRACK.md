@@ -69,7 +69,8 @@ Full specification: [`VALIDATION_WORKFLOW.md`](VALIDATION_WORKFLOW.md) §2.
 - Breakout signals are confirmed only after the H1 bar has closed.
 - Signal time (signal-bar close) and execution time (next-bar fill) are kept and shown separately.
 - The ATR value is captured when the entry signal is confirmed.
-- The initial stop is set relative to the actual simulated entry fill price, once. It is not recalculated on later H1 bars. Only the 10-bar exit channel may tighten the stop.
+- The initial stop is set relative to the actual simulated entry fill price, once. It is not recalculated or moved on later H1 bars. There is no trailing stop.
+- The 10-bar Donchian exit is a separate, close-confirmed exit condition: a completed H1 close beyond the opposite 10-bar channel of prior completed bars, executed at the next bar's open.
 - Risk setting 0.25% (D05) is unchanged until the user approves a revision. Pine sizing is diagnostic only and must not be presented as broker-accurate sizing.
 - Pine Strategy Tester results are not profitability evidence.
 

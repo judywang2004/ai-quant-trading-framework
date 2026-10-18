@@ -66,16 +66,16 @@ The script implements the approved baseline exactly (`FOREX_RESEARCH_TRACK.md`).
 | Signal confirmation | A breakout is confirmed only after the H1 bar has **closed**: the signal bar *t*'s close is above the highest high (long) or below the lowest low (short) of bars *t−20 … t−1*, i.e. `ta.highest(high, 20)[1]` / `ta.lowest(low, 20)[1]`. The bar is evaluated only on its final (confirmed) calculation, never on an intrabar or real-time update. |
 | Signal time vs. execution time | **Signal time** = close of the signal bar (`time_close`). **Execution time** = the market fill at the open of the next H1 bar (`process_orders_on_close = false`), the earliest price after the signal is available. Both times are kept separately and shown in the entry label and trade comment. They are never conflated. |
 | ATR capture | ATR(14) (`ta.atr`, RMA = Wilder) is **captured once, on the signal bar**, in a `var` variable when the signal is confirmed. That captured value sizes the initial stop. It is never re-read from later bars. |
-| Initial stop | Placed relative to the **actual simulated entry fill price** (`strategy.position_avg_price`): long = fill − 2 × captured ATR, short = fill + 2 × captured ATR. It is set **once** after the fill and **never recalculated** on later H1 bars. To place the stop right after the fill, the script uses `calc_on_order_fills = true`. That recalculation only places the protective stop. It never evaluates new entry signals. |
-| Exit channel | Opposite 10-bar channel. Long: the stop for bar *t+1* = max(current stop, lowest low of bars *t−9 … t*). Short: min(current stop, highest high of bars *t−9 … t*). Updated at each confirmed bar close. The stop **only tightens**. The initial ATR stop is the floor (long) / ceiling (short), never recomputed. |
+| Initial stop | Placed relative to the **actual simulated entry fill price** (`strategy.position_avg_price`): long = fill − 2 × captured ATR, short = fill + 2 × captured ATR. It is set **once** and **never recalculated or moved**. No trailing stop. It is submitted with the entry as `strategy.exit(loss = ticks)`, with ticks = 2 × captured ATR / `syminfo.mintick`, rounded to the nearest tick, stored per trade. TradingView measures `loss` from the entry price, so the stop is live from the fill bar without intrabar recalculation (`calc_on_order_fills = false`). Exit labels compare each ATR stop-out with fill ∓ ticks to confirm this. |
+| Exit channel | A **separate, close-confirmed** exit condition, not a stop. Long: confirmed close of bar *t* below the lowest low of bars *t−10 … t−1*. Short: confirmed close above the highest high of bars *t−10 … t−1*. The position closes at the next bar's open (`strategy.close`). It never moves the ATR stop. |
 | Take-profit | None |
 | Direction | Input `LONG_ONLY` / `SHORT_ONLY` / `BOTH` |
 | Positions | One open position at a time. `pyramiding = 0`. Entries are allowed only when `strategy.position_size == 0`, so an opposite breakout **never reverses** an open position (`strategy.entry` reverses by default). An opposite breakout while in a position is ignored, not queued. |
 | Trade frequency | No fixed weekly (or other) trade limit |
-| Sizing | **Diagnostic only, not broker-accurate.** Risk setting 0.25% of equity per trade (D05, unchanged until you approve a revision). Quantity = 0.25% × `strategy.equity` / (2 × captured ATR), in units, rounded down to 1,000 units (0.01 lot). Below 1,000 units the entry is skipped and labeled. It ignores spread, commission, slippage, the broker's contract specs and margin. The Python framework's sizing is authoritative. Pine sizing is never quoted as broker sizing. |
+| Sizing | **Diagnostic only, not broker-accurate.** Risk setting 0.25% of equity per trade (D05, unchanged until you approve a revision). Quantity = 0.25% × `strategy.equity` / (2 × captured ATR), in TradingView quantity, assumed to be base-currency units (EURUSD: `syminfo.pointvalue` = 1), rounded down to 1,000 units (0.01 lot). The script checks this assumption on the chart (UNIT CHECK label; each exit label compares TradingView P&L with qty × price move × point value). Below 1,000 units the entry is skipped and labeled. It ignores spread, commission, slippage, the broker's contract specs and margin. The Python framework's sizing is authoritative. Pine sizing is never quoted as broker sizing. |
 | Look-ahead / repaint | No `request.security`, no `lookahead_on`, no real-time-bar signals. Confirmed bars only. |
 | Not allowed | Martingale, grid, averaging down, re-entry scaling, or any added filter |
-| Plots | Upper/lower 20-bar entry channel, 10-bar exit channel, active stop line, signal markers (on the signal bar), fill markers (on the execution bar) with a reason label |
+| Plots | Upper/lower 20-bar entry channel, 10-bar exit channel, fixed ATR stop line, signal markers (on the signal bar), fill markers (on the execution bar), exit markers with a reason label |
 
 ### 2.3 Visual checklist (Stage 1 acceptance)
 
@@ -86,12 +86,12 @@ position is already open.
 1. Channel levels at 3 chosen bars match a manual count of the prior 20 / 10 bars.
 2. Every entry is on the bar **after** a close beyond the prior channel. No entry on the breakout bar itself.
 3. No entry occurs while a position is open. There are no reversals.
-4. The initial stop equals the **fill price** ∓ 2 × the ATR(14) captured on the signal bar, and the initial stop doesn't move when later ATR values change.
-5. The exit stop never loosens.
+4. The initial stop equals the **fill price** ∓ 2 × the ATR(14) captured on the signal bar, and it doesn't move during the trade.
+5. Every Donchian exit fills at the open of the bar after a close beyond the prior 10-bar channel. It never fills intrabar on a channel touch.
 6. `LONG_ONLY` shows no shorts, `SHORT_ONLY` no longs, and `BOTH` shows both.
 7. Signals don't change after reloading the chart (no repaint).
 8. Every trade shows a signal time (signal-bar close) earlier than or equal to its execution time (next-bar open fill).
-9. The protective stop is active on the fill bar itself (`calc_on_order_fills`). If TradingView's emulator turns out not to support this on historical bars, record it as a known Pine limitation in the sanity-check record. Don't work around it by placing the stop from an estimated entry.
+9. The ATR stop is active on the fill bar itself, and ATR stop-out labels show `diff 0 ticks` on bars without a gap. A non-zero diff without a gap means `loss` isn't measured from the fill. Record that in the sanity-check record.
 
 The result is recorded in `docs/forex/pine/PINE_SANITY_CHECK.md`: TradingView
 symbol and feed, chart timezone, date window, checklist outcome, and
@@ -135,10 +135,10 @@ logic, not P&L. The differences below explain the expected mismatches.
 | Swap | Not modeled | Not modeled in v1, stated in the report | Same gap in both |
 | Entry fill timing | Signal at the H1 close, market fill at the next H1 bar open | Signal available at the H1 close, fill at the open of the M5 bar starting at that time (PHASE1_PLAN C3) | Same instant. Price differs only by feed and side. |
 | Initial stop reference | Fill price (single series) ∓ 2 × ATR captured on the signal bar, set once | Phase 2.2 spec (to be written). It must use the same rule: actual fill (ask for longs, bid for shorts) ∓ 2 × signal-bar ATR, set once. | The same rule, but the Python fill includes spread and slippage, so stop levels differ by those amounts |
-| Stop on the fill bar | Active right after the fill via `calc_on_order_fills` (to be verified in P.1) | Evaluated from the entry fill onward within the same M5 bar (PHASE1_PLAN, executor) | If Pine can't protect the fill bar, early stop-outs can differ |
+| Stop on the fill bar | Active from the fill via `strategy.exit(loss = ticks)`. 2 × ATR is rounded to the nearest tick (to be verified in P.1). | Evaluated from the entry fill onward within the same M5 bar (PHASE1_PLAN, executor) | If Pine can't protect the fill bar, early stop-outs can differ |
 | Intrabar path | Broker emulator assumes a path inside each H1 bar (open → nearer extreme → other extreme → close), unless Bar Magnifier is enabled | M5 bars inside the H1 bar. Within an M5 bar, stop-first when ambiguous. | Stop and exit timing inside a volatile H1 bar can differ |
 | Gaps | Stop fills at the gap open | Stop fills at the M5 bar open | Similar. Prices differ by feed. |
-| Timestamps | Bar open time in the chart timezone | Bar open time in UTC | Compare in UTC. Set the chart timezone to UTC for Stage 1. |
+| Timestamps | Bar open time in the chart timezone | Bar open time in UTC | The chart uses TradingView's New York timezone (shown as UTC-4, DST-aware), and labels use `America/New_York` (label timezone input default) so both match all year. Convert to UTC before comparing with the Python ledger, and record the timezone used in the sanity-check record. |
 | Trading day / weekly open | Defined by the symbol's session | Configurable, 17:00 America/New_York | Doesn't move H1 bars. It affects the first bar of the week and D1 bars, which this baseline doesn't use. |
 | Weekend / filler bars | Feed-specific | Dukascopy flat filler bars are dropped and counted | Prior-bar windows can cover different bars around weekends and holidays |
 | ATR warm-up | RMA seeded from the start of the loaded history | Wilder ATR seeded from the start of the stored data | Early values differ. Ignore the first 100 bars of either history. |
